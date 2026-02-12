@@ -106,19 +106,27 @@ def register(
     ) -> dict:
         """Search X/Twitter using Grok AI synthesis and/or curated news articles.
 
-        Default mode runs both Grok (sentiment synthesis with citations) and
-        X News API (curated news articles) and returns combined results.
+        ROUTING GUIDE — pick the right mode for the query:
+        - "news" or "headlines" or "articles" in the user's request → mode='news'
+        - Asking for opinions, takes, discourse, or "what people think" → mode='grok'
+        - Asking for sentiment, bull/bear split, or mood → mode='sentiment'
+        - General research combining news + social context → mode='both' (default)
 
-        Sentiment mode is a multi-step process:
-        1. Grok analyzes the topic and suggests context-specific bullish/bearish keywords
-        2. Runs volume counts over time split by bullish vs bearish using those keywords
-        3. Fetches sample tweets from each side for qualitative context
+        Mode details:
+        - 'both' (default): Grok synthesis + X News API. Best for general research.
+        - 'news': X News API only. Returns curated news articles — headlines, summaries,
+          categories, and related posts. Use this when the user wants NEWS, not tweets.
+          Fast and cheap (no Grok call). Supports max_news_results and max_age_hours.
+        - 'grok': Grok AI synthesis only. Searches X posts and returns a summarized
+          answer with source citations.
+        - 'sentiment': Multi-step pipeline — Grok keyword generation → volume counts
+          over time per axis → sample tweets. Use for quantitative sentiment analysis.
 
         Args:
             query: Search query (natural language for Grok, keywords for news).
-            mode: 'both' (default) runs Grok + news, 'grok' for synthesis only,
-                  'news' for curated articles only, 'sentiment' for keyword-driven
-                  sentiment analysis with volume breakdown and sample tweets.
+            mode: 'both' (default), 'grok', 'news', or 'sentiment'. See routing
+                guide above. When the user asks for news/headlines/articles,
+                always use 'news'.
             max_news_results: Max news articles to return (1-100, default 10).
                 Only used in news/both modes.
             max_age_hours: Max age of news results in hours (1-720).

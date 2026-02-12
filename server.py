@@ -23,7 +23,12 @@ mcp = FastMCP(
         "Use search (default mode: both) for Grok sentiment synthesis + curated news, "
         "get_post_counts for volume analytics, get_user_tweets for monitoring accounts, "
         "get_tweet/get_thread/get_replies for individual post analysis. "
-        "All tools are read-only and idempotent."
+        "All tools are read-only and idempotent.\n\n"
+        "MODE SELECTION for search tool:\n"
+        "- User wants NEWS / headlines / articles → mode='news'\n"
+        "- User wants opinions / discourse / what people think → mode='grok'\n"
+        "- User wants sentiment / bull-bear split / mood → mode='sentiment'\n"
+        "- General research → mode='both' (default)"
     ),
 )
 
