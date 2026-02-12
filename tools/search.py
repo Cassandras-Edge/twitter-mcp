@@ -23,10 +23,13 @@ Return ONLY valid JSON with this exact structure:
 }
 
 Rules for keywords:
-- 8-15 keywords per side, single words or short phrases
-- Include topic-specific jargon (not just generic "buy"/"sell")
-- Think about what people actually type in tweets about this topic
-- Include cashtags, slang, abbreviations common on fintwit"""
+- Exactly 12 keywords per side, max 2 words each
+- First 5 MUST be these anchors:
+  Bullish: bullish, buy, calls, long, undervalued
+  Bearish: bearish, sell, puts, short, overvalued
+- Next 4 should be common fintwit action words for that sentiment (e.g. rally, breakout, moon, accumulate / dump, crash, tank, plummet)
+- Last 3 should be topic-specific words that retail traders are actually using in tweets RIGHT NOW about this topic
+- Every keyword must be a word someone would literally type in a tweet"""
 
 
 def _parse_grok_json(text: str) -> dict:
@@ -36,14 +39,19 @@ def _parse_grok_json(text: str) -> dict:
         text = text.split("```json")[1].split("```")[0]
     elif "```" in text:
         text = text.split("```")[1].split("```")[0]
-    try:
-        return json.loads(text.strip())
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start >= 0 and end > start:
-            return json.loads(text[start:end])
-        raise
+    # Find first complete top-level JSON object via brace matching
+    start = text.find("{")
+    if start < 0:
+        raise json.JSONDecodeError("No JSON object found", text, 0)
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+        if depth == 0:
+            return json.loads(text[start : i + 1])
+    raise json.JSONDecodeError("Unclosed JSON object", text, start)
 
 
 def _build_keyword_query(base_query: str, keywords: list[str]) -> str:
