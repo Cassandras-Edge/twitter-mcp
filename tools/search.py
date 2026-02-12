@@ -10,25 +10,34 @@ from mcp.types import ToolAnnotations
 from clients.x_api import XClient
 from clients.grok import GrokClient
 
-SENTIMENT_SYSTEM_PROMPT = """You are a financial sentiment analyst. Analyze current X/Twitter discourse on the given topic.
+SENTIMENT_SYSTEM_PROMPT = """You are a sentiment analyst. Analyze current X/Twitter discourse on the given topic.
+
+First, determine the right polarity framing for this topic:
+- Financial/stock topics → bullish vs bearish
+- Monetary policy → dovish vs hawkish
+- Political/policy topics → supportive vs opposed
+- Product/company topics → positive vs negative
+- General topics → for vs against
 
 Return ONLY valid JSON with this exact structure:
 {
   "summary": "2-3 sentence overall sentiment assessment",
-  "lean": "bullish" | "bearish" | "mixed",
+  "positive_label": "bullish",
+  "negative_label": "bearish",
+  "lean": "positive_label value" | "negative_label value" | "mixed",
   "confidence": 0.0-1.0,
-  "bullish_keywords": ["word1", "word2", ...],
-  "bearish_keywords": ["word1", "word2", ...],
+  "positive_keywords": ["word1", "word2", ...],
+  "negative_keywords": ["word1", "word2", ...],
   "key_themes": ["theme1", "theme2", ...]
 }
 
 Rules for keywords:
 - Exactly 12 keywords per side, max 2 words each
-- First 5 MUST be these anchors:
-  Bullish: bullish, buy, calls, long, undervalued
-  Bearish: bearish, sell, puts, short, overvalued
-- Next 4 should be common fintwit action words for that sentiment (e.g. rally, breakout, moon, accumulate / dump, crash, tank, plummet)
-- Last 3 should be topic-specific words that retail traders are actually using in tweets RIGHT NOW about this topic
+- First 5 should be high-frequency generic words for that polarity
+  (e.g. for stocks: bullish, buy, calls, long, undervalued / bearish, sell, puts, short, overvalued)
+  (e.g. for policy: support, approve, needed, beneficial, progress / oppose, reject, harmful, dangerous, overreach)
+- Next 4 should be common action/reaction words people tweet with that sentiment
+- Last 3 should be topic-specific words that people are actually using in tweets RIGHT NOW
 - Every keyword must be a word someone would literally type in a tweet"""
 
 
@@ -208,52 +217,55 @@ def register(
         except (json.JSONDecodeError, KeyError, IndexError) as exc:
             return {"error": "Failed to parse Grok JSON", "detail": str(exc), "raw": grok_raw}
 
-        bull_kw = analysis.get("bullish_keywords", [])
-        bear_kw = analysis.get("bearish_keywords", [])
+        pos_label = analysis.get("positive_label", "positive")
+        neg_label = analysis.get("negative_label", "negative")
+        pos_kw = analysis.get("positive_keywords", [])
+        neg_kw = analysis.get("negative_keywords", [])
 
-        if not bull_kw or not bear_kw:
+        if not pos_kw or not neg_kw:
             return {"error": "Grok returned no keywords", "analysis": analysis}
 
-        bull_q = _build_keyword_query(query, bull_kw)
-        bear_q = _build_keyword_query(query, bear_kw)
+        pos_q = _build_keyword_query(query, pos_kw)
+        neg_q = _build_keyword_query(query, neg_kw)
 
-        # -- Step 2: Volume counts (total, bullish, bearish) --
+        # -- Step 2: Volume counts (total, positive, negative) --
         try:
             total_data = await x_client.get(
                 "/tweets/counts/recent", {"query": query, "granularity": granularity}
             )
-            bull_data = await x_client.get(
-                "/tweets/counts/recent", {"query": bull_q, "granularity": granularity}
+            pos_data = await x_client.get(
+                "/tweets/counts/recent", {"query": pos_q, "granularity": granularity}
             )
-            bear_data = await x_client.get(
-                "/tweets/counts/recent", {"query": bear_q, "granularity": granularity}
+            neg_data = await x_client.get(
+                "/tweets/counts/recent", {"query": neg_q, "granularity": granularity}
             )
 
             counts = []
-            for t, b, br in zip(total_data["data"], bull_data["data"], bear_data["data"]):
-                tv, bv, brv = t["tweet_count"], b["tweet_count"], br["tweet_count"]
+            for t, p, n in zip(total_data["data"], pos_data["data"], neg_data["data"]):
+                tv, pv, nv = t["tweet_count"], p["tweet_count"], n["tweet_count"]
                 counts.append({
                     "start": t["start"],
                     "end": t["end"],
                     "total": tv,
-                    "bullish": bv,
-                    "bearish": brv,
-                    "bullish_pct": round(bv / tv * 100, 1) if tv else 0,
-                    "bearish_pct": round(brv / tv * 100, 1) if tv else 0,
+                    pos_label: pv,
+                    neg_label: nv,
+                    f"{pos_label}_pct": round(pv / tv * 100, 1) if tv else 0,
+                    f"{neg_label}_pct": round(nv / tv * 100, 1) if tv else 0,
                 })
 
             tt = total_data["meta"]["total_tweet_count"]
-            bt = bull_data["meta"]["total_tweet_count"]
-            brt = bear_data["meta"]["total_tweet_count"]
+            pt = pos_data["meta"]["total_tweet_count"]
+            nt = neg_data["meta"]["total_tweet_count"]
 
             result["counts"] = {
+                "labels": [pos_label, neg_label],
                 "buckets": counts,
                 "totals": {
                     "total": tt,
-                    "bullish": bt,
-                    "bearish": brt,
-                    "bullish_pct": round(bt / tt * 100, 1) if tt else 0,
-                    "bearish_pct": round(brt / tt * 100, 1) if tt else 0,
+                    pos_label: pt,
+                    neg_label: nt,
+                    f"{pos_label}_pct": round(pt / tt * 100, 1) if tt else 0,
+                    f"{neg_label}_pct": round(nt / tt * 100, 1) if tt else 0,
                 },
             }
         except httpx.HTTPStatusError as exc:
@@ -264,30 +276,30 @@ def register(
         # -- Step 3: Sample tweets from each side --
         sample_size = max(1, min(sample_size, 20))
         try:
-            bull_tweets = await x_client.get(
+            pos_tweets = await x_client.get(
                 "/tweets/search/recent",
-                x_client.tweet_params({"query": bull_q, "max_results": max(sample_size, 10)}),
+                x_client.tweet_params({"query": pos_q, "max_results": max(sample_size, 10)}),
             )
-            result["bullish_sample"] = x_client.format_response(bull_tweets)
+            result[f"{pos_label}_sample"] = x_client.format_response(pos_tweets)
         except httpx.HTTPStatusError as exc:
-            result["bullish_sample"] = x_client.handle_error(exc)
+            result[f"{pos_label}_sample"] = x_client.handle_error(exc)
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            result["bullish_sample"] = x_client.handle_exception(exc)
+            result[f"{pos_label}_sample"] = x_client.handle_exception(exc)
 
         try:
-            bear_tweets = await x_client.get(
+            neg_tweets = await x_client.get(
                 "/tweets/search/recent",
-                x_client.tweet_params({"query": bear_q, "max_results": max(sample_size, 10)}),
+                x_client.tweet_params({"query": neg_q, "max_results": max(sample_size, 10)}),
             )
-            result["bearish_sample"] = x_client.format_response(bear_tweets)
+            result[f"{neg_label}_sample"] = x_client.format_response(neg_tweets)
         except httpx.HTTPStatusError as exc:
-            result["bearish_sample"] = x_client.handle_error(exc)
+            result[f"{neg_label}_sample"] = x_client.handle_error(exc)
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            result["bearish_sample"] = x_client.handle_exception(exc)
+            result[f"{neg_label}_sample"] = x_client.handle_exception(exc)
 
         result["keywords_used"] = {
-            "bullish": bull_kw,
-            "bearish": bear_kw,
+            pos_label: pos_kw,
+            neg_label: neg_kw,
         }
 
         return result
