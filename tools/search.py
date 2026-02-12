@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Literal, Optional
 
 import httpx
@@ -8,6 +9,47 @@ from mcp.types import ToolAnnotations
 
 from clients.x_api import XClient
 from clients.grok import GrokClient
+
+SENTIMENT_SYSTEM_PROMPT = """You are a financial sentiment analyst. Analyze current X/Twitter discourse on the given topic.
+
+Return ONLY valid JSON with this exact structure:
+{
+  "summary": "2-3 sentence overall sentiment assessment",
+  "lean": "bullish" | "bearish" | "mixed",
+  "confidence": 0.0-1.0,
+  "bullish_keywords": ["word1", "word2", ...],
+  "bearish_keywords": ["word1", "word2", ...],
+  "key_themes": ["theme1", "theme2", ...]
+}
+
+Rules for keywords:
+- 8-15 keywords per side, single words or short phrases
+- Include topic-specific jargon (not just generic "buy"/"sell")
+- Think about what people actually type in tweets about this topic
+- Include cashtags, slang, abbreviations common on fintwit"""
+
+
+def _parse_grok_json(text: str) -> dict:
+    """Extract JSON from Grok response text."""
+    # Strip markdown fences if present
+    if "```json" in text:
+        text = text.split("```json")[1].split("```")[0]
+    elif "```" in text:
+        text = text.split("```")[1].split("```")[0]
+    try:
+        return json.loads(text.strip())
+    except json.JSONDecodeError:
+        start = text.find("{")
+        end = text.rfind("}") + 1
+        if start >= 0 and end > start:
+            return json.loads(text[start:end])
+        raise
+
+
+def _build_keyword_query(base_query: str, keywords: list[str]) -> str:
+    """Build an OR query from keywords, quoting multi-word phrases."""
+    parts = (f'"{k}"' if " " in k else k for k in keywords)
+    return f'{base_query} ({" OR ".join(parts)})'
 
 
 def register(
@@ -21,7 +63,7 @@ def register(
     @mcp.tool(annotations=_ro)
     async def search(
         query: str,
-        mode: Literal["both", "grok", "news"] = "both",
+        mode: Literal["both", "grok", "news", "sentiment"] = "both",
         max_news_results: int = 10,
         max_age_hours: Optional[int] = None,
         allowed_handles: Optional[list[str]] = None,
@@ -31,35 +73,60 @@ def register(
         enable_video_understanding: bool = False,
         system_prompt: Optional[str] = None,
         temperature: Optional[float] = None,
+        sentiment_granularity: str = "day",
+        sentiment_sample_size: int = 5,
     ) -> dict:
         """Search X/Twitter using Grok AI synthesis and/or curated news articles.
 
         Default mode runs both Grok (sentiment synthesis with citations) and
         X News API (curated news articles) and returns combined results.
 
+        Sentiment mode is a multi-step process:
+        1. Grok analyzes the topic and suggests context-specific bullish/bearish keywords
+        2. Runs volume counts over time split by bullish vs bearish using those keywords
+        3. Fetches sample tweets from each side for qualitative context
+
         Args:
             query: Search query (natural language for Grok, keywords for news).
             mode: 'both' (default) runs Grok + news, 'grok' for synthesis only,
-                  'news' for curated articles only.
+                  'news' for curated articles only, 'sentiment' for keyword-driven
+                  sentiment analysis with volume breakdown and sample tweets.
             max_news_results: Max news articles to return (1-100, default 10).
                 Only used in news/both modes.
             max_age_hours: Max age of news results in hours (1-720).
                 Only used in news/both modes.
             allowed_handles: Whitelist of X usernames to restrict Grok search to (max 10).
-                Only used in grok/both modes.
+                Only used in grok/both/sentiment modes.
             excluded_handles: X usernames to exclude from Grok results (max 10).
-                Only used in grok/both modes.
+                Only used in grok/both/sentiment modes.
             from_date: Only include posts on or after this date (ISO 8601, e.g. '2026-02-01').
-                Only used in grok/both modes.
+                Only used in grok/both/sentiment modes.
             to_date: Only include posts on or before this date (ISO 8601).
-                Only used in grok/both modes.
+                Only used in grok/both/sentiment modes.
             enable_video_understanding: Let Grok analyse video clips in posts.
-                Only used in grok/both modes.
+                Only used in grok/both/sentiment modes.
             system_prompt: Custom system prompt for Grok response style.
-                Only used in grok/both modes.
+                Only used in grok/both modes (sentiment mode uses its own prompt).
             temperature: Sampling temperature for Grok (0-2).
-                Only used in grok/both modes.
+                Only used in grok/both/sentiment modes.
+            sentiment_granularity: Time bucket for sentiment counts: 'minute', 'hour',
+                or 'day' (default: day). Only used in sentiment mode.
+            sentiment_sample_size: Number of sample tweets per side (1-20, default 5).
+                Only used in sentiment mode.
         """
+        if mode == "sentiment":
+            return await _sentiment_search(
+                query,
+                granularity=sentiment_granularity,
+                sample_size=sentiment_sample_size,
+                allowed_handles=allowed_handles,
+                excluded_handles=excluded_handles,
+                from_date=from_date,
+                to_date=to_date,
+                enable_video_understanding=enable_video_understanding,
+                temperature=temperature,
+            )
+
         result: dict = {}
 
         # -- Grok synthesis --
@@ -94,5 +161,125 @@ def register(
                 result["news"] = x_client.handle_error(exc)
             except (httpx.ConnectError, httpx.TimeoutException) as exc:
                 result["news"] = x_client.handle_exception(exc)
+
+        return result
+
+    async def _sentiment_search(
+        query: str,
+        *,
+        granularity: str = "day",
+        sample_size: int = 5,
+        allowed_handles: list[str] | None = None,
+        excluded_handles: list[str] | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        enable_video_understanding: bool = False,
+        temperature: float | None = None,
+    ) -> dict:
+        """Multi-step sentiment analysis: Grok keywords → counts + sample tweets."""
+        result: dict = {}
+
+        # -- Step 1: Grok analysis + keyword generation --
+        try:
+            grok_raw = await grok_client.search(
+                f"Analyze sentiment on {query}",
+                allowed_handles=allowed_handles,
+                excluded_handles=excluded_handles,
+                from_date=from_date,
+                to_date=to_date,
+                enable_video_understanding=enable_video_understanding,
+                system_prompt=SENTIMENT_SYSTEM_PROMPT,
+                temperature=temperature or 0.3,
+            )
+            analysis = _parse_grok_json(grok_raw["text"])
+            result["analysis"] = analysis
+        except (httpx.HTTPStatusError, httpx.ConnectError, httpx.TimeoutException) as exc:
+            if isinstance(exc, httpx.HTTPStatusError):
+                return {"error": "Grok analysis failed", "detail": x_client.handle_error(exc)}
+            return {"error": "Grok analysis failed", "detail": x_client.handle_exception(exc)}
+        except (json.JSONDecodeError, KeyError, IndexError) as exc:
+            return {"error": "Failed to parse Grok JSON", "detail": str(exc), "raw": grok_raw}
+
+        bull_kw = analysis.get("bullish_keywords", [])
+        bear_kw = analysis.get("bearish_keywords", [])
+
+        if not bull_kw or not bear_kw:
+            return {"error": "Grok returned no keywords", "analysis": analysis}
+
+        bull_q = _build_keyword_query(query, bull_kw)
+        bear_q = _build_keyword_query(query, bear_kw)
+
+        # -- Step 2: Volume counts (total, bullish, bearish) --
+        try:
+            total_data = await x_client.get(
+                "/tweets/counts/recent", {"query": query, "granularity": granularity}
+            )
+            bull_data = await x_client.get(
+                "/tweets/counts/recent", {"query": bull_q, "granularity": granularity}
+            )
+            bear_data = await x_client.get(
+                "/tweets/counts/recent", {"query": bear_q, "granularity": granularity}
+            )
+
+            counts = []
+            for t, b, br in zip(total_data["data"], bull_data["data"], bear_data["data"]):
+                tv, bv, brv = t["tweet_count"], b["tweet_count"], br["tweet_count"]
+                counts.append({
+                    "start": t["start"],
+                    "end": t["end"],
+                    "total": tv,
+                    "bullish": bv,
+                    "bearish": brv,
+                    "bullish_pct": round(bv / tv * 100, 1) if tv else 0,
+                    "bearish_pct": round(brv / tv * 100, 1) if tv else 0,
+                })
+
+            tt = total_data["meta"]["total_tweet_count"]
+            bt = bull_data["meta"]["total_tweet_count"]
+            brt = bear_data["meta"]["total_tweet_count"]
+
+            result["counts"] = {
+                "buckets": counts,
+                "totals": {
+                    "total": tt,
+                    "bullish": bt,
+                    "bearish": brt,
+                    "bullish_pct": round(bt / tt * 100, 1) if tt else 0,
+                    "bearish_pct": round(brt / tt * 100, 1) if tt else 0,
+                },
+            }
+        except httpx.HTTPStatusError as exc:
+            result["counts"] = x_client.handle_error(exc)
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            result["counts"] = x_client.handle_exception(exc)
+
+        # -- Step 3: Sample tweets from each side --
+        sample_size = max(1, min(sample_size, 20))
+        try:
+            bull_tweets = await x_client.get(
+                "/tweets/search/recent",
+                x_client.tweet_params({"query": bull_q, "max_results": max(sample_size, 10)}),
+            )
+            result["bullish_sample"] = x_client.format_response(bull_tweets)
+        except httpx.HTTPStatusError as exc:
+            result["bullish_sample"] = x_client.handle_error(exc)
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            result["bullish_sample"] = x_client.handle_exception(exc)
+
+        try:
+            bear_tweets = await x_client.get(
+                "/tweets/search/recent",
+                x_client.tweet_params({"query": bear_q, "max_results": max(sample_size, 10)}),
+            )
+            result["bearish_sample"] = x_client.format_response(bear_tweets)
+        except httpx.HTTPStatusError as exc:
+            result["bearish_sample"] = x_client.handle_error(exc)
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            result["bearish_sample"] = x_client.handle_exception(exc)
+
+        result["keywords_used"] = {
+            "bullish": bull_kw,
+            "bearish": bear_kw,
+        }
 
         return result
