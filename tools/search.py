@@ -12,30 +12,41 @@ from clients.grok import GrokClient
 
 SENTIMENT_SYSTEM_PROMPT = """You are a sentiment analyst. Analyze current X/Twitter discourse on the given topic.
 
-First, determine the right polarity framing for this topic:
-- Financial/stock topics → bullish vs bearish
-- Monetary policy → dovish vs hawkish
-- Political/policy topics → supportive vs opposed
-- Product/company topics → positive vs negative
-- General topics → for vs against
+First, determine the right axes for this topic. Choose 2-4 axes that capture the
+distinct camps in the conversation. Examples:
+- Stock/crypto → bullish, bearish (2 axes)
+- Monetary policy → dovish, hawkish, wait-and-see (3 axes)
+- Election/debate → one axis per major candidate or position (2-4 axes)
+- Product launch → excited, skeptical, disappointed (3 axes)
+- Policy debate → supportive, opposed, cautious (3 axes)
+- Simple for/against → for, against (2 axes)
+
+Only add a 3rd or 4th axis if there is genuinely a distinct camp with its own
+language. Don't force extra axes — 2 is fine for most topics.
 
 Return ONLY valid JSON with this exact structure:
 {
   "summary": "2-3 sentence overall sentiment assessment",
-  "positive_label": "bullish",
-  "negative_label": "bearish",
-  "lean": "positive_label value" | "negative_label value" | "mixed",
+  "axes": [
+    {
+      "label": "bullish",
+      "keywords": ["word1", "word2", ...]
+    },
+    {
+      "label": "bearish",
+      "keywords": ["word1", "word2", ...]
+    }
+  ],
+  "lean": "label of the dominant axis or mixed",
   "confidence": 0.0-1.0,
-  "positive_keywords": ["word1", "word2", ...],
-  "negative_keywords": ["word1", "word2", ...],
   "key_themes": ["theme1", "theme2", ...]
 }
 
 Rules for keywords:
-- Exactly 12 keywords per side, max 2 words each
-- First 5 should be high-frequency generic words for that polarity
-  (e.g. for stocks: bullish, buy, calls, long, undervalued / bearish, sell, puts, short, overvalued)
-  (e.g. for policy: support, approve, needed, beneficial, progress / oppose, reject, harmful, dangerous, overreach)
+- Exactly 12 keywords per axis, max 2 words each
+- First 5 should be high-frequency generic words for that axis
+  (e.g. for bullish: bullish, buy, calls, long, undervalued)
+  (e.g. for dovish: dovish, cut rates, easing, stimulus, accomodative)
 - Next 4 should be common action/reaction words people tweet with that sentiment
 - Last 3 should be topic-specific words that people are actually using in tweets RIGHT NOW
 - Every keyword must be a word someone would literally type in a tweet"""
@@ -217,89 +228,83 @@ def register(
         except (json.JSONDecodeError, KeyError, IndexError) as exc:
             return {"error": "Failed to parse Grok JSON", "detail": str(exc), "raw": grok_raw}
 
-        pos_label = analysis.get("positive_label", "positive")
-        neg_label = analysis.get("negative_label", "negative")
-        pos_kw = analysis.get("positive_keywords", [])
-        neg_kw = analysis.get("negative_keywords", [])
+        axes = analysis.get("axes", [])
+        if len(axes) < 2:
+            return {"error": "Grok returned fewer than 2 axes", "analysis": analysis}
+        # Cap at 4 axes
+        axes = axes[:4]
 
-        if not pos_kw or not neg_kw:
-            return {"error": "Grok returned no keywords", "analysis": analysis}
+        # Build search queries per axis
+        axis_queries: list[tuple[str, list[str], str]] = []
+        for axis in axes:
+            label = axis.get("label", "unknown")
+            kw = axis.get("keywords", [])
+            if not kw:
+                continue
+            axis_queries.append((label, kw, _build_keyword_query(query, kw)))
 
-        pos_q = _build_keyword_query(query, pos_kw)
-        neg_q = _build_keyword_query(query, neg_kw)
+        if len(axis_queries) < 2:
+            return {"error": "Not enough axes with keywords", "analysis": analysis}
 
-        # -- Step 2: Volume counts (total, positive, negative) --
+        # -- Step 2: Volume counts (total + per-axis) --
         try:
             total_data = await x_client.get(
                 "/tweets/counts/recent", {"query": query, "granularity": granularity}
             )
-            pos_data = await x_client.get(
-                "/tweets/counts/recent", {"query": pos_q, "granularity": granularity}
-            )
-            neg_data = await x_client.get(
-                "/tweets/counts/recent", {"query": neg_q, "granularity": granularity}
-            )
+            axis_counts_data = []
+            for _, _, aq in axis_queries:
+                data = await x_client.get(
+                    "/tweets/counts/recent", {"query": aq, "granularity": granularity}
+                )
+                axis_counts_data.append(data)
 
-            counts = []
-            for t, p, n in zip(total_data["data"], pos_data["data"], neg_data["data"]):
-                tv, pv, nv = t["tweet_count"], p["tweet_count"], n["tweet_count"]
-                counts.append({
-                    "start": t["start"],
-                    "end": t["end"],
+            buckets = []
+            for i, t_bucket in enumerate(total_data["data"]):
+                tv = t_bucket["tweet_count"]
+                bucket: dict = {
+                    "start": t_bucket["start"],
+                    "end": t_bucket["end"],
                     "total": tv,
-                    pos_label: pv,
-                    neg_label: nv,
-                    f"{pos_label}_pct": round(pv / tv * 100, 1) if tv else 0,
-                    f"{neg_label}_pct": round(nv / tv * 100, 1) if tv else 0,
-                })
+                }
+                for (label, _, _), ac_data in zip(axis_queries, axis_counts_data):
+                    av = ac_data["data"][i]["tweet_count"]
+                    bucket[label] = av
+                    bucket[f"{label}_pct"] = round(av / tv * 100, 1) if tv else 0
+                buckets.append(bucket)
 
             tt = total_data["meta"]["total_tweet_count"]
-            pt = pos_data["meta"]["total_tweet_count"]
-            nt = neg_data["meta"]["total_tweet_count"]
+            totals: dict = {"total": tt}
+            for (label, _, _), ac_data in zip(axis_queries, axis_counts_data):
+                at = ac_data["meta"]["total_tweet_count"]
+                totals[label] = at
+                totals[f"{label}_pct"] = round(at / tt * 100, 1) if tt else 0
 
             result["counts"] = {
-                "labels": [pos_label, neg_label],
-                "buckets": counts,
-                "totals": {
-                    "total": tt,
-                    pos_label: pt,
-                    neg_label: nt,
-                    f"{pos_label}_pct": round(pt / tt * 100, 1) if tt else 0,
-                    f"{neg_label}_pct": round(nt / tt * 100, 1) if tt else 0,
-                },
+                "labels": [label for label, _, _ in axis_queries],
+                "buckets": buckets,
+                "totals": totals,
             }
         except httpx.HTTPStatusError as exc:
             result["counts"] = x_client.handle_error(exc)
         except (httpx.ConnectError, httpx.TimeoutException) as exc:
             result["counts"] = x_client.handle_exception(exc)
 
-        # -- Step 3: Sample tweets from each side --
+        # -- Step 3: Sample tweets per axis --
         sample_size = max(1, min(sample_size, 20))
-        try:
-            pos_tweets = await x_client.get(
-                "/tweets/search/recent",
-                x_client.tweet_params({"query": pos_q, "max_results": max(sample_size, 10)}),
-            )
-            result[f"{pos_label}_sample"] = x_client.format_response(pos_tweets)
-        except httpx.HTTPStatusError as exc:
-            result[f"{pos_label}_sample"] = x_client.handle_error(exc)
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            result[f"{pos_label}_sample"] = x_client.handle_exception(exc)
-
-        try:
-            neg_tweets = await x_client.get(
-                "/tweets/search/recent",
-                x_client.tweet_params({"query": neg_q, "max_results": max(sample_size, 10)}),
-            )
-            result[f"{neg_label}_sample"] = x_client.format_response(neg_tweets)
-        except httpx.HTTPStatusError as exc:
-            result[f"{neg_label}_sample"] = x_client.handle_error(exc)
-        except (httpx.ConnectError, httpx.TimeoutException) as exc:
-            result[f"{neg_label}_sample"] = x_client.handle_exception(exc)
+        for label, _, aq in axis_queries:
+            try:
+                tweets = await x_client.get(
+                    "/tweets/search/recent",
+                    x_client.tweet_params({"query": aq, "max_results": max(sample_size, 10)}),
+                )
+                result[f"{label}_sample"] = x_client.format_response(tweets)
+            except httpx.HTTPStatusError as exc:
+                result[f"{label}_sample"] = x_client.handle_error(exc)
+            except (httpx.ConnectError, httpx.TimeoutException) as exc:
+                result[f"{label}_sample"] = x_client.handle_exception(exc)
 
         result["keywords_used"] = {
-            pos_label: pos_kw,
-            neg_label: neg_kw,
+            label: kw for label, kw, _ in axis_queries
         }
 
         return result
