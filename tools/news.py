@@ -18,11 +18,12 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
         max_results: int = 10,
         max_age_hours: Optional[int] = None,
     ) -> dict:
-        """Search X/Twitter for curated news articles.
+        """Search X/Twitter for curated news articles. PREFERRED for most queries.
 
-        Returns headlines, summaries, categories, and related posts from the
-        X News API. Use this when the user wants NEWS, headlines, or articles —
-        not tweets or opinions.
+        Fast and cheap — use this as the default starting point for any research
+        query. Returns headlines, summaries, categories, and related posts from
+        the X News API. Only escalate to the search tool (Grok AI) when you
+        specifically need opinion synthesis or sentiment analysis.
 
         Args:
             query: Keywords to search for in news articles.

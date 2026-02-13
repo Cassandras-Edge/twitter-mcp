@@ -102,17 +102,19 @@ def register(
         sentiment_granularity: str = "day",
         sentiment_sample_size: int = 5,
     ) -> dict:
-        """Search X/Twitter using Grok AI synthesis.
+        """Search X/Twitter using Grok AI synthesis. Uses more resources than search_news.
+
+        Consider search_news first — it is faster and cheaper. Only use this tool
+        when you need Grok AI capabilities: opinion synthesis, discourse analysis,
+        or quantitative sentiment.
 
         Mode details:
         - 'grok' (default): Grok AI synthesis. Searches X posts and returns a
           summarized answer with source citations. Good for opinions, discourse,
-          and general research.
+          and what people think.
         - 'sentiment': Multi-step pipeline — Grok keyword generation → volume counts
           over time per axis → sample tweets. Use for quantitative sentiment analysis
           (bull/bear split, mood).
-
-        For news/headlines/articles, use the search_news tool instead.
 
         Args:
             query: Search query (natural language).
