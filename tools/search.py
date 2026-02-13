@@ -91,9 +91,7 @@ def register(
     @mcp.tool(annotations=_ro)
     async def search(
         query: str,
-        mode: Literal["both", "grok", "news", "sentiment"] = "both",
-        max_news_results: int = 10,
-        max_age_hours: Optional[int] = None,
+        mode: Literal["grok", "sentiment"] = "grok",
         allowed_handles: Optional[list[str]] = None,
         excluded_handles: Optional[list[str]] = None,
         from_date: Optional[str] = None,
@@ -104,47 +102,29 @@ def register(
         sentiment_granularity: str = "day",
         sentiment_sample_size: int = 5,
     ) -> dict:
-        """Search X/Twitter using Grok AI synthesis and/or curated news articles.
-
-        ROUTING GUIDE — pick the right mode for the query:
-        - "news" or "headlines" or "articles" in the user's request → mode='news'
-        - Asking for opinions, takes, discourse, or "what people think" → mode='grok'
-        - Asking for sentiment, bull/bear split, or mood → mode='sentiment'
-        - General research combining news + social context → mode='both' (default)
+        """Search X/Twitter using Grok AI synthesis.
 
         Mode details:
-        - 'both' (default): Grok synthesis + X News API. Best for general research.
-        - 'news': X News API only. Returns curated news articles — headlines, summaries,
-          categories, and related posts. Use this when the user wants NEWS, not tweets.
-          Fast and cheap (no Grok call). Supports max_news_results and max_age_hours.
-        - 'grok': Grok AI synthesis only. Searches X posts and returns a summarized
-          answer with source citations.
+        - 'grok' (default): Grok AI synthesis. Searches X posts and returns a
+          summarized answer with source citations. Good for opinions, discourse,
+          and general research.
         - 'sentiment': Multi-step pipeline — Grok keyword generation → volume counts
-          over time per axis → sample tweets. Use for quantitative sentiment analysis.
+          over time per axis → sample tweets. Use for quantitative sentiment analysis
+          (bull/bear split, mood).
+
+        For news/headlines/articles, use the search_news tool instead.
 
         Args:
-            query: Search query (natural language for Grok, keywords for news).
-            mode: 'both' (default), 'grok', 'news', or 'sentiment'. See routing
-                guide above. When the user asks for news/headlines/articles,
-                always use 'news'.
-            max_news_results: Max news articles to return (1-100, default 10).
-                Only used in news/both modes.
-            max_age_hours: Max age of news results in hours (1-720).
-                Only used in news/both modes.
+            query: Search query (natural language).
+            mode: 'grok' (default) or 'sentiment'.
             allowed_handles: Whitelist of X usernames to restrict Grok search to (max 10).
-                Only used in grok/both/sentiment modes.
             excluded_handles: X usernames to exclude from Grok results (max 10).
-                Only used in grok/both/sentiment modes.
             from_date: Only include posts on or after this date (ISO 8601, e.g. '2026-02-01').
-                Only used in grok/both/sentiment modes.
             to_date: Only include posts on or before this date (ISO 8601).
-                Only used in grok/both/sentiment modes.
             enable_video_understanding: Let Grok analyse video clips in posts.
-                Only used in grok/both/sentiment modes.
             system_prompt: Custom system prompt for Grok response style.
-                Only used in grok/both modes (sentiment mode uses its own prompt).
+                Only used in grok mode (sentiment mode uses its own prompt).
             temperature: Sampling temperature for Grok (0-2).
-                Only used in grok/both/sentiment modes.
             sentiment_granularity: Time bucket for sentiment counts: 'minute', 'hour',
                 or 'day' (default: day). Only used in sentiment mode.
             sentiment_sample_size: Number of sample tweets per side (1-20, default 5).
@@ -163,12 +143,10 @@ def register(
                 temperature=temperature,
             )
 
-        result: dict = {}
-
         # -- Grok synthesis --
-        if mode in ("both", "grok"):
-            try:
-                grok_result = await grok_client.search(
+        try:
+            return {
+                "grok": await grok_client.search(
                     query,
                     allowed_handles=allowed_handles,
                     excluded_handles=excluded_handles,
@@ -178,27 +156,11 @@ def register(
                     system_prompt=system_prompt or default_system_prompt,
                     temperature=temperature,
                 )
-                result["grok"] = grok_result
-            except httpx.HTTPStatusError as exc:
-                result["grok"] = x_client.handle_error(exc)
-            except (httpx.ConnectError, httpx.TimeoutException) as exc:
-                result["grok"] = x_client.handle_exception(exc)
-
-        # -- News articles --
-        if mode in ("both", "news"):
-            try:
-                extra: dict = {"query": query, "max_results": max_news_results}
-                if max_age_hours:
-                    extra["max_age_hours"] = max_age_hours
-                params = x_client.news_params(extra)
-                data = await x_client.get("/news/search", params)
-                result["news"] = x_client.format_news_response(data)
-            except httpx.HTTPStatusError as exc:
-                result["news"] = x_client.handle_error(exc)
-            except (httpx.ConnectError, httpx.TimeoutException) as exc:
-                result["news"] = x_client.handle_exception(exc)
-
-        return result
+            }
+        except httpx.HTTPStatusError as exc:
+            return {"grok": x_client.handle_error(exc)}
+        except (httpx.ConnectError, httpx.TimeoutException) as exc:
+            return {"grok": x_client.handle_exception(exc)}
 
     async def _sentiment_search(
         query: str,

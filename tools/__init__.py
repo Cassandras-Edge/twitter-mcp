@@ -15,9 +15,11 @@ def register_all(
     default_system_prompt: str,
 ) -> None:
     from .search import register as reg_search
+    from .news import register as reg_news
     from .posts import register as reg_posts
     from .analytics import register as reg_analytics
 
     reg_search(mcp, x_client, grok_client, default_system_prompt)
+    reg_news(mcp, x_client)
     reg_posts(mcp, x_client)
     reg_analytics(mcp, x_client)

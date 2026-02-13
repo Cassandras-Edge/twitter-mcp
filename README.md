@@ -1,12 +1,13 @@
 # Twitter MCP Server
 
-Consolidated Twitter/X MCP server for financial research. Merges **Grok AI synthesis** (xAI Responses API) and **X API v2** into a single server with 6 tools.
+Consolidated Twitter/X MCP server for financial research. Merges **Grok AI synthesis** (xAI Responses API) and **X API v2** into a single server with 7 tools.
 
 ## Tools
 
 | Tool | Source | Purpose |
 |------|--------|---------|
-| `search` | Grok + API | Sentiment synthesis + curated news (4 modes) |
+| `search` | Grok (xAI) | Grok AI synthesis + sentiment analysis (2 modes) |
+| `search_news` | API v2 | Curated news articles, headlines, summaries |
 | `get_post_counts` | API v2 | Buzz quantification over time |
 | `get_user_tweets` | API v2 | Monitor trusted accounts |
 | `get_tweet` | API v2 | Single tweet lookup with full metadata |
@@ -15,16 +16,10 @@ Consolidated Twitter/X MCP server for financial research. Merges **Grok AI synth
 
 ## Search Modes
 
-The `search` tool supports 4 modes via the `mode` parameter:
+The `search` tool supports 2 modes via the `mode` parameter:
 
-### `both` (default)
-Runs Grok synthesis + X News API in sequence. Returns qualitative analysis with citations and curated news articles.
-
-### `grok`
-Grok-only synthesis. xAI searches X autonomously, analyzes posts, and returns a summarized answer with deduplicated source links.
-
-### `news`
-X News API only. Returns curated news articles matching the query.
+### `grok` (default)
+Grok AI synthesis. xAI searches X autonomously, analyzes posts, and returns a summarized answer with deduplicated source links. Good for opinions, discourse, and general research.
 
 ### `sentiment`
 Multi-step sentiment analysis pipeline:
@@ -110,7 +105,8 @@ twitter-mcp/
 │   ├── x_api.py           # Async X API v2 client
 │   └── grok.py            # Async xAI Responses API client
 └── tools/
-    ├── search.py           # Merged search (4 modes: both, grok, news, sentiment)
+    ├── search.py           # Grok search (2 modes: grok, sentiment)
+    ├── news.py             # search_news (X News API)
     ├── posts.py            # get_tweet, get_thread, get_replies
     └── analytics.py        # get_post_counts, get_user_tweets
 ```
