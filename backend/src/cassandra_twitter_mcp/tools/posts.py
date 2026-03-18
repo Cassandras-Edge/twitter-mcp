@@ -4,11 +4,17 @@ from datetime import datetime, timezone
 
 import httpx
 from fastmcp import FastMCP
+from fastmcp.dependencies import CurrentAccessToken
+from fastmcp.server.auth import AccessToken
+from fastmcp.server.context import Context
 from fastmcp.tools.tool import ToolResult
 from fastmcp.utilities.types import Image
 from mcp.types import TextContent, ToolAnnotations
 
 from cassandra_twitter_mcp.clients.x_api import XClient
+from cassandra_twitter_mcp.tools._helpers import (
+    check_acl, get_email, get_enforcer, resolve_x_client,
+)
 
 
 def _clamp_total_results(max_results: int) -> int:
@@ -160,14 +166,16 @@ async def _fetch_important_replies(
     return important, meta
 
 
-def register(mcp: FastMCP, x_client: XClient) -> None:
+def register(mcp: FastMCP) -> None:
     _ro = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=True)
 
     @mcp.tool(annotations=_ro)
     async def get_tweet(
         tweet_id: str,
+        ctx: Context,
         include_image_content: bool = False,
         max_image_blocks: int = 4,
+        token: AccessToken = CurrentAccessToken(),
     ) -> dict | ToolResult:
         """Get a single tweet by ID or URL.
 
@@ -178,6 +186,8 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
             max_image_blocks: Max number of image blocks to embed when
                 include_image_content=true (default 4, max 12).
         """
+        check_acl(get_enforcer(ctx), get_email(token), "get_tweet")
+        x_client = resolve_x_client(ctx, token)
         try:
             tid = x_client.extract_tweet_id(tweet_id)
             params = x_client.tweet_params()
@@ -207,11 +217,13 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
     @mcp.tool(annotations=_ro)
     async def get_thread(
         tweet_id: str,
+        ctx: Context,
         max_results: int = 120,
         important_replies_count: int = 5,
         important_replies_scan_limit: int = 200,
         include_image_content: bool = False,
         max_image_blocks: int = 6,
+        token: AccessToken = CurrentAccessToken(),
     ) -> dict | ToolResult:
         """Get the original author's full thread chain for a conversation.
 
@@ -231,6 +243,8 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
             max_image_blocks: Max number of image blocks to embed when
                 include_image_content=true (default 6, max 12).
         """
+        check_acl(get_enforcer(ctx), get_email(token), "get_thread")
+        x_client = resolve_x_client(ctx, token)
         try:
             tid = x_client.extract_tweet_id(tweet_id)
             capped_results = _clamp_total_results(max_results)
@@ -347,13 +361,20 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
             return x_client.handle_exception(exc)
 
     @mcp.tool(annotations=_ro)
-    async def get_replies(tweet_id: str, max_results: int = 50) -> dict:
+    async def get_replies(
+        tweet_id: str,
+        ctx: Context,
+        max_results: int = 50,
+        token: AccessToken = CurrentAccessToken(),
+    ) -> dict:
         """Get replies to a specific tweet.
 
         Args:
             tweet_id: Tweet ID or URL
             max_results: Max replies (10-100, default 50)
         """
+        check_acl(get_enforcer(ctx), get_email(token), "get_replies")
+        x_client = resolve_x_client(ctx, token)
         try:
             tid = x_client.extract_tweet_id(tweet_id)
 

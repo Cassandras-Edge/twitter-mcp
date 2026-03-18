@@ -4,19 +4,26 @@ from typing import Optional
 
 import httpx
 from fastmcp import FastMCP
+from fastmcp.dependencies import CurrentAccessToken
+from fastmcp.server.auth import AccessToken
+from fastmcp.server.context import Context
 from mcp.types import ToolAnnotations
 
-from cassandra_twitter_mcp.clients.x_api import XClient
+from cassandra_twitter_mcp.tools._helpers import (
+    check_acl, get_email, get_enforcer, resolve_x_client,
+)
 
 
-def register(mcp: FastMCP, x_client: XClient) -> None:
+def register(mcp: FastMCP) -> None:
     _ro = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=True)
 
     @mcp.tool(annotations=_ro)
     async def search_news(
         query: str,
+        ctx: Context,
         max_results: int = 10,
         max_age_hours: Optional[int] = None,
+        token: AccessToken = CurrentAccessToken(),
     ) -> dict:
         """Search X/Twitter for curated news articles. PREFERRED for most queries.
 
@@ -30,6 +37,8 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
             max_results: Max news articles to return (1-100, default 10).
             max_age_hours: Max age of news results in hours (1-720).
         """
+        check_acl(get_enforcer(ctx), get_email(token), "search_news")
+        x_client = resolve_x_client(ctx, token)
         try:
             extra: dict = {"query": query, "max_results": max_results}
             if max_age_hours:

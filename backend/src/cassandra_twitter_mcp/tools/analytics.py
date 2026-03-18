@@ -4,20 +4,27 @@ from typing import Optional
 
 import httpx
 from fastmcp import FastMCP
+from fastmcp.dependencies import CurrentAccessToken
+from fastmcp.server.auth import AccessToken
+from fastmcp.server.context import Context
 from mcp.types import ToolAnnotations
 
-from cassandra_twitter_mcp.clients.x_api import XClient
+from cassandra_twitter_mcp.tools._helpers import (
+    check_acl, get_email, get_enforcer, resolve_x_client,
+)
 
 
-def register(mcp: FastMCP, x_client: XClient) -> None:
+def register(mcp: FastMCP) -> None:
     _ro = ToolAnnotations(readOnlyHint=True, idempotentHint=True, openWorldHint=True)
 
     @mcp.tool(annotations=_ro)
     async def get_post_counts(
         query: str,
+        ctx: Context,
         granularity: str = "hour",
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
+        token: AccessToken = CurrentAccessToken(),
     ) -> dict:
         """Get tweet volume counts for a query over time (last 7 days).
 
@@ -29,6 +36,8 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
             start_time: ISO 8601 start time
             end_time: ISO 8601 end time
         """
+        check_acl(get_enforcer(ctx), get_email(token), "get_post_counts")
+        x_client = resolve_x_client(ctx, token)
         try:
             params: dict = {"query": query, "granularity": granularity}
             if start_time:
@@ -45,12 +54,14 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
     @mcp.tool(annotations=_ro)
     async def get_user_tweets(
         username: str,
+        ctx: Context,
         max_results: int = 10,
         exclude_replies: bool = False,
         exclude_retweets: bool = False,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
         pagination_token: Optional[str] = None,
+        token: AccessToken = CurrentAccessToken(),
     ) -> dict:
         """Get recent tweets from a user's timeline.
 
@@ -63,6 +74,8 @@ def register(mcp: FastMCP, x_client: XClient) -> None:
             end_time: ISO 8601 end time
             pagination_token: Token for next page of results
         """
+        check_acl(get_enforcer(ctx), get_email(token), "get_user_tweets")
+        x_client = resolve_x_client(ctx, token)
         try:
             user_id = await x_client.resolve_user_id(username)
             excludes = []

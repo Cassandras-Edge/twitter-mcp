@@ -1,23 +1,25 @@
 """FastMCP server for Cassandra Twitter MCP — unified Twitter/X tools with auth.
 
-Three backends:
-- X API v2 (bearer token): search_news, get_post_counts, get_user_tweets, get_tweet, get_thread, get_replies
-- Grok AI (xAI key): search (synthesis + sentiment)
-- twitter-cli (per-user cookies): my_feed, my_bookmarks, get_article, my_profile, personal_search
+All API keys and cookies are per-user credentials from ACL:
+- x_bearer_token: X API v2 bearer token
+- xai_api_key: xAI/Grok API key
+- twitter_auth_token + twitter_ct0: browser cookies for twitter-cli
+
+Clients are cached per-user with TTL so we don't recreate on every call.
 """
 
 from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastmcp import FastMCP
 
+from cassandra_twitter_mcp.acl import Enforcer, load_enforcer
 from cassandra_twitter_mcp.auth import McpKeyAuthProvider
-from cassandra_twitter_mcp.clients import XClient, GrokClient
-from cassandra_twitter_mcp.clients.personal import PersonalClient
+from cassandra_twitter_mcp.client_cache import ClientCache
 from cassandra_twitter_mcp.config import Settings
-from cassandra_twitter_mcp.tools import register_all
 
 logger = logging.getLogger(__name__)
 
@@ -33,23 +35,18 @@ def create_mcp_server(settings: Settings) -> FastMCP:
         service_id=SERVICE_ID,
     ) if settings.auth_url and settings.auth_secret else None
 
-    # Global API clients (deployment-level keys, shared across all users)
-    x_client = XClient(settings.x_bearer_token, settings.x_timeout)
-    grok_client = GrokClient(settings.xai_api_key, settings.grok_model)
+    acl_path = Path(settings.auth_yaml_path)
+    enforcer = load_enforcer(acl_path) if acl_path.exists() else None
 
-    # Personal client (env-var cookies for local dev, or None in prod where
-    # per-user cookies come from ACL credentials at request time)
-    personal_client = None
-    if settings.has_personal_env:
-        try:
-            personal_client = PersonalClient(settings.twitter_auth_token, settings.twitter_ct0)
-            logger.info("Personal account tools enabled (env var cookies)")
-        except Exception as exc:
-            logger.warning("Personal account tools disabled: %s", exc)
+    client_cache = ClientCache()
 
     @asynccontextmanager
     async def lifespan(server):
-        yield
+        yield {
+            "client_cache": client_cache,
+            "enforcer": enforcer,
+            "settings": settings,
+        }
         if auth_provider:
             auth_provider.close()
 
@@ -81,13 +78,9 @@ def create_mcp_server(settings: Settings) -> FastMCP:
 
         return JSONResponse({"ok": True, "service": "cassandra-twitter-mcp"})
 
-    # Register all tool modules
-    register_all(
-        mcp,
-        x_client,
-        grok_client,
-        settings.grok_system_prompt,
-        personal_client,
-    )
+    # Register all tool modules — tools resolve clients per-request from credentials
+    from cassandra_twitter_mcp.tools import register_all  # noqa: PLC0415
+
+    register_all(mcp, settings)
 
     return mcp
