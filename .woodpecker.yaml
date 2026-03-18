@@ -1,0 +1,34 @@
+when:
+  - event: [push, pull_request]
+
+steps:
+  # ── Deploy: Docker image via BuildKit (push to main only) ──
+
+  - name: build-backend
+    image: moby/buildkit:v0.21.1
+    when:
+      - event: push
+        branch: main
+    environment:
+      AUTH_YAML_CONTENT:
+        from_secret: auth_yaml
+      GITHUB_TOKEN:
+        from_secret: github_token
+    commands:
+      - >
+        buildctl
+        --addr tcp://buildkitd.buildkitd.svc.cluster.local:1234
+        build
+        --frontend dockerfile.v0
+        --local context=backend
+        --local dockerfile=backend
+        --opt "build-arg:AUTH_YAML_CONTENT=$AUTH_YAML_CONTENT"
+        --output type=image,name=172.20.0.161:30500/cassandra-twitter-mcp:latest,push=true,registry.insecure=true
+
+  - name: restart-deployment
+    image: bitnami/kubectl:latest
+    when:
+      - event: push
+        branch: main
+    commands:
+      - kubectl rollout restart deployment cassandra-twitter-mcp -n cassandra-twitter-mcp

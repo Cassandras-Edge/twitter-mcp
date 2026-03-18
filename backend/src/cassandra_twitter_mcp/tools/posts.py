@@ -8,7 +8,7 @@ from fastmcp.tools.tool import ToolResult
 from fastmcp.utilities.types import Image
 from mcp.types import TextContent, ToolAnnotations
 
-from clients.x_api import XClient
+from cassandra_twitter_mcp.clients.x_api import XClient
 
 
 def _clamp_total_results(max_results: int) -> int:

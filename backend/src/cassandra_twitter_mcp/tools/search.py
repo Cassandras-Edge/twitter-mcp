@@ -7,8 +7,8 @@ import httpx
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from clients.x_api import XClient
-from clients.grok import GrokClient
+from cassandra_twitter_mcp.clients.x_api import XClient
+from cassandra_twitter_mcp.clients.grok import GrokClient
 
 SENTIMENT_SYSTEM_PROMPT = """You are a sentiment analyst. Analyze current X/Twitter discourse on the given topic.
 

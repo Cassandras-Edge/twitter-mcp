@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from clients.personal import PersonalClient
-    from clients.x_api import XClient
-    from clients.grok import GrokClient
+    from cassandra_twitter_mcp.clients.personal import PersonalClient
+    from cassandra_twitter_mcp.clients.x_api import XClient
+    from cassandra_twitter_mcp.clients.grok import GrokClient
     from fastmcp import FastMCP
 
 

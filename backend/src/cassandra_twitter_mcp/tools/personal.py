@@ -13,7 +13,7 @@ from typing import Literal, Optional
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from clients.personal import PersonalClient
+from cassandra_twitter_mcp.clients.personal import PersonalClient
 
 
 def register(mcp: FastMCP, personal_client: PersonalClient) -> None:

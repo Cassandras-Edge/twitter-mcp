@@ -6,7 +6,7 @@ import httpx
 from fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from clients.x_api import XClient
+from cassandra_twitter_mcp.clients.x_api import XClient
 
 
 def register(mcp: FastMCP, x_client: XClient) -> None:
