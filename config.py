@@ -20,6 +20,12 @@ class Settings:
     x_timeout: int = 30
     grok_model: str = "grok-4-1-fast-non-reasoning"
     grok_system_prompt: str = DEFAULT_SYSTEM_PROMPT
+    twitter_auth_token: str = ""
+    twitter_ct0: str = ""
+
+    @property
+    def has_personal(self) -> bool:
+        return bool(self.twitter_auth_token and self.twitter_ct0)
 
 
 def load_settings() -> Settings:
@@ -44,9 +50,14 @@ def load_settings() -> Settings:
 
     grok_model = os.getenv("GROK_MODEL", "grok-4-1-fast-non-reasoning")
 
+    twitter_auth_token = os.getenv("TWITTER_AUTH_TOKEN", "").strip()
+    twitter_ct0 = os.getenv("TWITTER_CT0", "").strip()
+
     return Settings(
         x_bearer_token=x_bearer_token,
         xai_api_key=xai_api_key,
         x_timeout=x_timeout,
         grok_model=grok_model,
+        twitter_auth_token=twitter_auth_token,
+        twitter_ct0=twitter_ct0,
     )

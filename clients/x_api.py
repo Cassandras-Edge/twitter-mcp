@@ -13,13 +13,20 @@ class XClient:
 
     TWEET_FIELDS = (
         "author_id,created_at,public_metrics,conversation_id,"
-        "referenced_tweets,entities,lang,note_tweet,reply_settings"
+        "referenced_tweets,entities,lang,note_tweet,reply_settings,attachments"
     )
     USER_FIELDS = (
         "id,name,username,profile_image_url,verified,verified_type,"
         "description,public_metrics,created_at,location,url"
     )
-    EXPANSIONS = "author_id,referenced_tweets.id,referenced_tweets.id.author_id"
+    MEDIA_FIELDS = (
+        "media_key,type,url,preview_image_url,width,height,alt_text,"
+        "duration_ms,variants"
+    )
+    EXPANSIONS = (
+        "author_id,referenced_tweets.id,referenced_tweets.id.author_id,"
+        "attachments.media_keys"
+    )
     NEWS_FIELDS = (
         "category,cluster_posts_results,contexts,disclaimer,"
         "hook,id,keywords,name,summary,updated_at"
@@ -52,6 +59,7 @@ class XClient:
         params: dict = {
             "tweet.fields": self.TWEET_FIELDS,
             "user.fields": self.USER_FIELDS,
+            "media.fields": self.MEDIA_FIELDS,
             "expansions": self.EXPANSIONS,
         }
         if extra:
@@ -79,12 +87,53 @@ class XClient:
             return {}
         return {u["id"]: u for u in includes.get("users", [])}
 
-    def format_tweet(self, tweet: dict, users_map: dict) -> dict:
+    def build_media_map(self, includes: dict | None) -> dict:
+        if not includes:
+            return {}
+        return {
+            m["media_key"]: m
+            for m in includes.get("media", [])
+            if m.get("media_key")
+        }
+
+    def format_media(self, media: dict) -> dict:
+        result: dict = {
+            "media_key": media.get("media_key"),
+            "type": media.get("type"),
+        }
+        if url := media.get("url"):
+            result["url"] = url
+        if preview := media.get("preview_image_url"):
+            result["preview_url"] = preview
+        if width := media.get("width"):
+            result["width"] = width
+        if height := media.get("height"):
+            result["height"] = height
+        if alt_text := media.get("alt_text"):
+            result["alt_text"] = alt_text
+        if duration_ms := media.get("duration_ms"):
+            result["duration_ms"] = duration_ms
+        if variants := media.get("variants"):
+            filtered = []
+            for variant in variants:
+                if not variant.get("url"):
+                    continue
+                filtered.append({
+                    "url": variant.get("url"),
+                    "content_type": variant.get("content_type"),
+                    "bit_rate": variant.get("bit_rate"),
+                })
+            if filtered:
+                result["variants"] = filtered
+        return result
+
+    def format_tweet(self, tweet: dict, users_map: dict, media_map: dict) -> dict:
         author = users_map.get(tweet.get("author_id"), {})
         result: dict = {
             "id": tweet.get("id"),
             "text": tweet.get("text"),
             "created_at": tweet.get("created_at"),
+            "conversation_id": tweet.get("conversation_id"),
             "author": {
                 "id": author.get("id"),
                 "name": author.get("name"),
@@ -100,6 +149,22 @@ class XClient:
         # Referenced tweets (replies, quotes, retweets)
         if refs := tweet.get("referenced_tweets"):
             result["referenced_tweets"] = refs
+            reply_to = next(
+                (r.get("id") for r in refs if r.get("type") == "replied_to"),
+                None,
+            )
+            if reply_to:
+                result["reply_to_tweet_id"] = reply_to
+        # Media attachments (images, video, GIF)
+        media_keys = tweet.get("attachments", {}).get("media_keys", [])
+        if media_keys:
+            media = []
+            for media_key in media_keys:
+                if m := media_map.get(media_key):
+                    media.append(self.format_media(m))
+                else:
+                    media.append({"media_key": media_key})
+            result["media"] = media
         # Entities (URLs, hashtags, mentions, cashtags)
         if entities := tweet.get("entities"):
             urls = entities.get("urls")
@@ -121,15 +186,16 @@ class XClient:
         """Flatten a standard v2 response (data + includes + meta) into a clean structure."""
         includes = data.get("includes")
         users_map = self.build_users_map(includes)
+        media_map = self.build_media_map(includes)
 
         raw = data.get("data")
         if raw is None:
             return {"tweets": [], "meta": data.get("meta", {})}
 
         if isinstance(raw, list):
-            tweets = [self.format_tweet(t, users_map) for t in raw]
+            tweets = [self.format_tweet(t, users_map, media_map) for t in raw]
         else:
-            tweets = [self.format_tweet(raw, users_map)]
+            tweets = [self.format_tweet(raw, users_map, media_map)]
 
         result: dict = {"tweets": tweets}
         if meta := data.get("meta"):
