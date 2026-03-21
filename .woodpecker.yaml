@@ -17,7 +17,7 @@ steps:
     commands:
       - >
         buildctl
-        --addr tcp://buildkitd.buildkitd.svc.cluster.local:1234
+        --addr tcp://buildkitd.infra.svc.cluster.local:1234
         build
         --frontend dockerfile.v0
         --local context=backend
@@ -31,4 +31,4 @@ steps:
       - event: push
         branch: main
     commands:
-      - kubectl rollout restart deployment cassandra-twitter-mcp -n cassandra-twitter-mcp
+      - kubectl rollout restart deployment cassandra-twitter-mcp -n production
