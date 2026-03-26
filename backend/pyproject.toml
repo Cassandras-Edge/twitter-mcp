@@ -9,8 +9,10 @@ description = "Consolidated Twitter MCP server — Grok synthesis + X API v2 + p
 requires-python = ">=3.12"
 dependencies = [
     "cassandra-mcp-auth @ git+https://github.com/Cassandras-Edge/cassandra-auth.git#subdirectory=python",
+    "cryptography>=44.0.0",
     "fastmcp>=2.12.0",
     "httpx>=0.28.0",
+    "key-value>=0.3.0",
     "twitter-cli>=0.8.0",
     "uvicorn>=0.34.0",
 ]

@@ -1,4 +1,4 @@
-"""Shared helpers for resolving per-user clients from ACL credentials."""
+"""Shared helpers for resolving clients."""
 
 from __future__ import annotations
 
@@ -38,30 +38,24 @@ def get_enforcer(ctx: Context) -> Enforcer | None:
     return ctx.lifespan_context.get("enforcer")
 
 
-def resolve_x_client(ctx: Context, token: AccessToken) -> XClient:
-    """Resolve per-user X API v2 client from credentials."""
-    cache = get_cache(ctx)
-    email = get_email(token)
-    credentials = get_credentials(token)
-    client = cache.get_x_client(email, credentials)
+def resolve_x_client(ctx: Context) -> XClient:
+    """Resolve shared X API v2 client (deployment-level)."""
+    client = get_cache(ctx).get_x_client()
     if client is None:
-        raise ValueError("X API bearer token not configured. Set x_bearer_token in your credentials.")
+        raise ValueError("X_BEARER_TOKEN env var not set.")
     return client
 
 
-def resolve_grok_client(ctx: Context, token: AccessToken) -> GrokClient:
-    """Resolve per-user Grok/xAI client from credentials."""
-    cache = get_cache(ctx)
-    email = get_email(token)
-    credentials = get_credentials(token)
-    client = cache.get_grok_client(email, credentials)
+def resolve_grok_client(ctx: Context) -> GrokClient:
+    """Resolve shared Grok/xAI client (deployment-level)."""
+    client = get_cache(ctx).get_grok_client()
     if client is None:
-        raise ValueError("xAI API key not configured. Set xai_api_key in your credentials.")
+        raise ValueError("XAI_API_KEY env var not set.")
     return client
 
 
 def resolve_personal_client(ctx: Context, token: AccessToken) -> PersonalClient:
-    """Resolve per-user twitter-cli client from credentials."""
+    """Resolve per-user twitter-cli client from ACL credentials."""
     cache = get_cache(ctx)
     email = get_email(token)
     credentials = get_credentials(token)

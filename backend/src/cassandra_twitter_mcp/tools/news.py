@@ -38,7 +38,7 @@ def register(mcp: FastMCP) -> None:
             max_age_hours: Max age of news results in hours (1-720).
         """
         check_acl(get_enforcer(ctx), get_email(token), "search_news")
-        x_client = resolve_x_client(ctx, token)
+        x_client = resolve_x_client(ctx)
         try:
             extra: dict = {"query": query, "max_results": max_results}
             if max_age_hours:

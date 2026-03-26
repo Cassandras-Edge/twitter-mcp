@@ -250,8 +250,8 @@ def register(mcp: FastMCP, settings: Settings) -> None:
                 Only used in sentiment mode.
         """
         check_acl(get_enforcer(ctx), get_email(token), "search")
-        x_client = resolve_x_client(ctx, token)
-        grok_client = resolve_grok_client(ctx, token)
+        x_client = resolve_x_client(ctx)
+        grok_client = resolve_grok_client(ctx)
 
         if mode == "sentiment":
             return await _sentiment_search(

@@ -37,7 +37,7 @@ def register(mcp: FastMCP) -> None:
             end_time: ISO 8601 end time
         """
         check_acl(get_enforcer(ctx), get_email(token), "get_post_counts")
-        x_client = resolve_x_client(ctx, token)
+        x_client = resolve_x_client(ctx)
         try:
             params: dict = {"query": query, "granularity": granularity}
             if start_time:
@@ -75,7 +75,7 @@ def register(mcp: FastMCP) -> None:
             pagination_token: Token for next page of results
         """
         check_acl(get_enforcer(ctx), get_email(token), "get_user_tweets")
-        x_client = resolve_x_client(ctx, token)
+        x_client = resolve_x_client(ctx)
         try:
             user_id = await x_client.resolve_user_id(username)
             excludes = []

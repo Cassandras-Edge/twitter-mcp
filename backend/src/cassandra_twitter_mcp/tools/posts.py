@@ -187,7 +187,7 @@ def register(mcp: FastMCP) -> None:
                 include_image_content=true (default 4, max 12).
         """
         check_acl(get_enforcer(ctx), get_email(token), "get_tweet")
-        x_client = resolve_x_client(ctx, token)
+        x_client = resolve_x_client(ctx)
         try:
             tid = x_client.extract_tweet_id(tweet_id)
             params = x_client.tweet_params()
@@ -244,7 +244,7 @@ def register(mcp: FastMCP) -> None:
                 include_image_content=true (default 6, max 12).
         """
         check_acl(get_enforcer(ctx), get_email(token), "get_thread")
-        x_client = resolve_x_client(ctx, token)
+        x_client = resolve_x_client(ctx)
         try:
             tid = x_client.extract_tweet_id(tweet_id)
             capped_results = _clamp_total_results(max_results)
@@ -374,7 +374,7 @@ def register(mcp: FastMCP) -> None:
             max_results: Max replies (10-100, default 50)
         """
         check_acl(get_enforcer(ctx), get_email(token), "get_replies")
-        x_client = resolve_x_client(ctx, token)
+        x_client = resolve_x_client(ctx)
         try:
             tid = x_client.extract_tweet_id(tweet_id)
 
