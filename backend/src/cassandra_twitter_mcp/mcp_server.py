@@ -7,20 +7,12 @@ Per-user (ACL credentials): twitter_auth_token, twitter_ct0 (browser cookies)
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from cryptography.fernet import Fernet
 from fastmcp import FastMCP
 from fastmcp.server.auth import MultiAuth
-from fastmcp.server.auth.providers.workos import WorkOSProvider
-from key_value.aio.stores.filetree import (
-    FileTreeStore,
-    FileTreeV1CollectionSanitizationStrategy,
-    FileTreeV1KeySanitizationStrategy,
-)
-from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
+from fastmcp.server.auth.providers.workos import AuthKitProvider
 
 from cassandra_twitter_mcp.acl import Enforcer, load_enforcer
 from cassandra_twitter_mcp.auth import McpKeyAuthProvider
@@ -35,28 +27,11 @@ SERVICE_ID = "twitter-mcp"
 def create_mcp_server(settings: Settings) -> FastMCP:
     """Create and configure the FastMCP server with auth and all tools."""
 
-    # OAuth token storage (survives pod restarts)
-    token_dir = Path("/data/oauth-tokens")
-    token_dir.mkdir(parents=True, exist_ok=True)
-
-    jwt_key = os.getenv("JWT_SIGNING_KEY") or Fernet.generate_key().decode()
-    storage_key = os.getenv("STORAGE_ENCRYPTION_KEY") or Fernet.generate_key().decode()
-
-    workos_provider = WorkOSProvider(
-        client_id=settings.workos_client_id,
-        client_secret=settings.workos_client_secret,
+    # AuthKit DCR — WorkOS handles OAuth directly, we just verify JWTs via JWKS
+    authkit_provider = AuthKitProvider(
         authkit_domain=settings.workos_authkit_domain,
         base_url=settings.base_url,
-        required_scopes=["openid", "profile", "email"],
-        jwt_signing_key=jwt_key,
-        client_storage=FernetEncryptionWrapper(
-            key_value=FileTreeStore(
-                data_directory=token_dir,
-                key_sanitization_strategy=FileTreeV1KeySanitizationStrategy(token_dir),
-                collection_sanitization_strategy=FileTreeV1CollectionSanitizationStrategy(token_dir),
-            ),
-            fernet=Fernet(storage_key if isinstance(storage_key, bytes) else storage_key.encode()),
-        ),
+        client_id=settings.workos_client_id,
     )
 
     mcp_key_provider = McpKeyAuthProvider(
@@ -66,7 +41,7 @@ def create_mcp_server(settings: Settings) -> FastMCP:
     ) if settings.auth_url and settings.auth_secret else None
 
     auth_provider = MultiAuth(
-        server=workos_provider,
+        server=authkit_provider,
         verifiers=[mcp_key_provider] if mcp_key_provider else [],
     )
 
