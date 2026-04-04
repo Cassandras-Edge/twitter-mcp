@@ -28,8 +28,12 @@ def create_mcp_server(settings: Settings) -> FastMCP:
     """Create and configure the FastMCP server with auth and all tools."""
 
     # AuthKit DCR — WorkOS handles OAuth directly, we just verify JWTs via JWKS
+    domain = settings.workos_authkit_domain
+    if not domain.startswith(("http://", "https://")):
+        domain = f"https://{domain}"
+
     authkit_provider = AuthKitProvider(
-        authkit_domain=settings.workos_authkit_domain,
+        authkit_domain=domain,
         base_url=settings.base_url,
         client_id=settings.workos_client_id,
     )
