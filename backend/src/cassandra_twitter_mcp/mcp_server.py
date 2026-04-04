@@ -11,11 +11,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastmcp import FastMCP
-from fastmcp.server.auth import MultiAuth
-from fastmcp.server.auth.providers.workos import AuthKitProvider
-
 from cassandra_twitter_mcp.acl import Enforcer, load_enforcer
-from cassandra_twitter_mcp.auth import McpKeyAuthProvider
+from cassandra_twitter_mcp.auth import McpKeyAuthProvider, build_auth
 from cassandra_twitter_mcp.client_cache import ClientCache
 from cassandra_twitter_mcp.config import Settings
 
@@ -27,26 +24,13 @@ SERVICE_ID = "twitter-mcp"
 def create_mcp_server(settings: Settings) -> FastMCP:
     """Create and configure the FastMCP server with auth and all tools."""
 
-    # AuthKit DCR — WorkOS handles OAuth directly, we just verify JWTs via JWKS
-    domain = settings.workos_authkit_domain
-    if not domain.startswith(("http://", "https://")):
-        domain = f"https://{domain}"
-
-    authkit_provider = AuthKitProvider(
-        authkit_domain=domain,
-        base_url=settings.base_url,
-        client_id=settings.workos_client_id,
-    )
-
-    mcp_key_provider = McpKeyAuthProvider(
+    auth_provider, mcp_key_provider = build_auth(
         acl_url=settings.auth_url,
         acl_secret=settings.auth_secret,
         service_id=SERVICE_ID,
-    ) if settings.auth_url and settings.auth_secret else None
-
-    auth_provider = MultiAuth(
-        server=authkit_provider,
-        verifiers=[mcp_key_provider] if mcp_key_provider else [],
+        base_url=settings.base_url,
+        workos_client_id=settings.workos_client_id,
+        workos_authkit_domain=settings.workos_authkit_domain,
     )
 
     acl_path = Path(settings.auth_yaml_path)
