@@ -24,14 +24,25 @@ SERVICE_ID = "twitter-mcp"
 def create_mcp_server(settings: Settings) -> FastMCP:
     """Create and configure the FastMCP server with auth and all tools."""
 
-    auth_provider, mcp_key_provider = build_auth(
-        acl_url=settings.auth_url,
-        acl_secret=settings.auth_secret,
-        service_id=SERVICE_ID,
-        base_url=settings.base_url,
-        workos_client_id=settings.workos_client_id,
-        workos_authkit_domain=settings.workos_authkit_domain,
-    )
+    auth_provider = None
+    mcp_key_provider = None
+    if settings.auth_url and settings.auth_secret:
+        if settings.workos_client_id and settings.workos_authkit_domain and settings.base_url:
+            auth_provider, mcp_key_provider = build_auth(
+                acl_url=settings.auth_url,
+                acl_secret=settings.auth_secret,
+                service_id=SERVICE_ID,
+                base_url=settings.base_url,
+                workos_client_id=settings.workos_client_id,
+                workos_authkit_domain=settings.workos_authkit_domain,
+            )
+        else:
+            mcp_key_provider = McpKeyAuthProvider(
+                acl_url=settings.auth_url,
+                acl_secret=settings.auth_secret,
+                service_id=SERVICE_ID,
+            )
+            auth_provider = mcp_key_provider
 
     acl_path = Path(settings.auth_yaml_path)
     enforcer = load_enforcer(acl_path) if acl_path.exists() else None
@@ -48,9 +59,9 @@ def create_mcp_server(settings: Settings) -> FastMCP:
         if mcp_key_provider:
             mcp_key_provider.close()
 
-    mcp = FastMCP(
-        name="Cassandra Twitter",
-        instructions=(
+    mcp_kwargs: dict = {
+        "name": "Cassandra Twitter",
+        "instructions": (
             "Consolidated Twitter/X server for financial research and personal account access. "
             "PREFER search_news as the default starting point — it is fast, cheap, "
             "and returns curated news articles with headlines and summaries. "
@@ -62,9 +73,12 @@ def create_mcp_server(settings: Settings) -> FastMCP:
             "and get_article for Twitter Articles (long-form content). "
             "All tools are read-only and idempotent."
         ),
-        lifespan=lifespan,
-        auth=auth_provider,
-    )
+        "lifespan": lifespan,
+    }
+    if auth_provider:
+        mcp_kwargs["auth"] = auth_provider
+
+    mcp = FastMCP(**mcp_kwargs)
 
     # Health check
     @mcp.custom_route("/healthz", methods=["GET"])
