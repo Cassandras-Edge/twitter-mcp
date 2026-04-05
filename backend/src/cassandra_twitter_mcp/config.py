@@ -28,6 +28,7 @@ class Settings:
     # WorkOS OAuth
     workos_client_id: str = ""
     workos_authkit_domain: str = ""
+    workos_api_key: str = ""
     base_url: str = "https://twitter-mcp.cassandrasedge.com"
 
     # Server
@@ -43,6 +44,7 @@ def load_settings() -> Settings:
         auth_yaml_path=os.environ.get("AUTH_YAML_PATH", "/app/acl.yaml"),
         workos_client_id=os.environ.get("WORKOS_CLIENT_ID", ""),
         workos_authkit_domain=os.environ.get("WORKOS_AUTHKIT_DOMAIN", ""),
+        workos_api_key=os.environ.get("WORKOS_API_KEY", ""),
         base_url=os.environ.get("BASE_URL", "https://twitter-mcp.cassandrasedge.com"),
         host=os.environ.get("HOST", "0.0.0.0"),
         mcp_port=int(os.environ.get("MCP_PORT", "3003")),

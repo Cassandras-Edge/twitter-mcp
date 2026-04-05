@@ -31,6 +31,7 @@ def create_mcp_server(settings: Settings) -> FastMCP:
         base_url=settings.base_url,
         workos_client_id=settings.workos_client_id,
         workos_authkit_domain=settings.workos_authkit_domain,
+        workos_api_key=settings.workos_api_key,
     )
 
     acl_path = Path(settings.auth_yaml_path)

@@ -127,7 +127,7 @@ wheels = [
 [[package]]
 name = "cassandra-mcp-auth"
 version = "0.1.0"
-source = { git = "https://github.com/Cassandras-Edge/cassandra-auth.git?subdirectory=python&rev=0089006#00890065dd02087b5b5eaf68d403c329afc71090" }
+source = { git = "https://github.com/Cassandras-Edge/cassandra-auth.git?subdirectory=python&rev=e04dc29#e04dc29f8d258ff99d34f2a8cbee9311f732d051" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
@@ -149,7 +149,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cassandra-mcp-auth", git = "https://github.com/Cassandras-Edge/cassandra-auth.git?subdirectory=python&rev=0089006" },
+    { name = "cassandra-mcp-auth", git = "https://github.com/Cassandras-Edge/cassandra-auth.git?subdirectory=python&rev=e04dc29" },
     { name = "cryptography", specifier = ">=44.0.0" },
     { name = "fastmcp", extras = ["auth"], specifier = ">=2.12.0" },
     { name = "httpx", specifier = ">=0.28.0" },
