@@ -45,6 +45,10 @@ def create_mcp_server(settings: Settings) -> FastMCP:
 
     client_cache = ClientCache()
 
+    # Set fallback so tools work even without lifespan (gateway embedding)
+    from cassandra_twitter_mcp.tools._helpers import set_fallback
+    set_fallback(client_cache, settings)
+
     @asynccontextmanager
     async def lifespan(server):
         yield {

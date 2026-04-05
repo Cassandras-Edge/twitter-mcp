@@ -10,18 +10,37 @@ from cassandra_twitter_mcp.clients.grok import GrokClient
 from cassandra_twitter_mcp.clients.personal import PersonalClient
 from cassandra_twitter_mcp.clients.x_api import XClient
 
+# Module-level fallbacks — set by create_mcp_server for gateway embedding
+_fallback_cache: ClientCache | None = None
+_fallback_settings = None
+
+
+def set_fallback(cache: ClientCache, settings) -> None:
+    global _fallback_cache, _fallback_settings
+    _fallback_cache = cache
+    _fallback_settings = settings
+
+
 def get_email(token: AccessToken | None) -> str:
     if token is None:
         return ""
     return token.claims.get("email", "")
 
 
-def get_credentials(token: AccessToken) -> dict[str, str]:
+def get_credentials(token: AccessToken | None) -> dict[str, str]:
+    if token is None:
+        return {}
     return token.claims.get("credentials", {})
 
 
 def get_cache(ctx: Context) -> ClientCache:
-    return ctx.lifespan_context["client_cache"]
+    if ctx.lifespan_context is not None:
+        cache = ctx.lifespan_context.get("client_cache")
+        if cache is not None:
+            return cache
+    if _fallback_cache is not None:
+        return _fallback_cache
+    raise ValueError("Client cache not initialized.")
 
 
 def resolve_x_client(ctx: Context) -> XClient:
