@@ -10,7 +10,9 @@ from cassandra_twitter_mcp.clients.grok import GrokClient
 from cassandra_twitter_mcp.clients.personal import PersonalClient
 from cassandra_twitter_mcp.clients.x_api import XClient
 
-def get_email(token: AccessToken) -> str:
+def get_email(token: AccessToken | None) -> str:
+    if token is None:
+        return ""
     return token.claims.get("email", "")
 
 
