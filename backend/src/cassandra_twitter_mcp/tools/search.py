@@ -14,7 +14,7 @@ from cassandra_twitter_mcp.clients.grok import GrokClient
 from cassandra_twitter_mcp.clients.x_api import XClient
 from cassandra_twitter_mcp.config import Settings
 from cassandra_twitter_mcp.tools._helpers import (
-    check_acl, get_email, get_enforcer, resolve_grok_client, resolve_x_client,
+    get_email, resolve_grok_client, resolve_x_client,
 )
 
 SENTIMENT_SYSTEM_PROMPT = """You are a sentiment analyst. Analyze current X/Twitter discourse on the given topic.
@@ -249,7 +249,6 @@ def register(mcp: FastMCP, settings: Settings) -> None:
             sentiment_sample_size: Number of sample tweets per side (1-20, default 5).
                 Only used in sentiment mode.
         """
-        check_acl(get_enforcer(ctx), get_email(token), "search")
         x_client = resolve_x_client(ctx)
         grok_client = resolve_grok_client(ctx)
 

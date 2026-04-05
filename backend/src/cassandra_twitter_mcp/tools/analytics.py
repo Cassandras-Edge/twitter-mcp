@@ -10,7 +10,7 @@ from fastmcp.server.context import Context
 from mcp.types import ToolAnnotations
 
 from cassandra_twitter_mcp.tools._helpers import (
-    check_acl, get_email, get_enforcer, resolve_x_client,
+    get_email, resolve_x_client,
 )
 
 
@@ -36,7 +36,6 @@ def register(mcp: FastMCP) -> None:
             start_time: ISO 8601 start time
             end_time: ISO 8601 end time
         """
-        check_acl(get_enforcer(ctx), get_email(token), "get_post_counts")
         x_client = resolve_x_client(ctx)
         try:
             params: dict = {"query": query, "granularity": granularity}
@@ -74,7 +73,6 @@ def register(mcp: FastMCP) -> None:
             end_time: ISO 8601 end time
             pagination_token: Token for next page of results
         """
-        check_acl(get_enforcer(ctx), get_email(token), "get_user_tweets")
         x_client = resolve_x_client(ctx)
         try:
             user_id = await x_client.resolve_user_id(username)

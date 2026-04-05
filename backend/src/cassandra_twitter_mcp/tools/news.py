@@ -10,7 +10,7 @@ from fastmcp.server.context import Context
 from mcp.types import ToolAnnotations
 
 from cassandra_twitter_mcp.tools._helpers import (
-    check_acl, get_email, get_enforcer, resolve_x_client,
+    get_email, resolve_x_client,
 )
 
 
@@ -37,7 +37,6 @@ def register(mcp: FastMCP) -> None:
             max_results: Max news articles to return (1-100, default 10).
             max_age_hours: Max age of news results in hours (1-720).
         """
-        check_acl(get_enforcer(ctx), get_email(token), "search_news")
         x_client = resolve_x_client(ctx)
         try:
             extra: dict = {"query": query, "max_results": max_results}

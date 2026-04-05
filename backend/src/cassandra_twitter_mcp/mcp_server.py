@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastmcp import FastMCP
-from cassandra_twitter_mcp.acl import Enforcer, load_enforcer
+from cassandra_mcp_auth import AclMiddleware
 from cassandra_twitter_mcp.auth import McpKeyAuthProvider, build_auth
 from cassandra_twitter_mcp.client_cache import ClientCache
 from cassandra_twitter_mcp.config import Settings
@@ -44,20 +43,19 @@ def create_mcp_server(settings: Settings) -> FastMCP:
             )
             auth_provider = mcp_key_provider
 
-    acl_path = Path(settings.auth_yaml_path)
-    enforcer = load_enforcer(acl_path) if acl_path.exists() else None
-
     client_cache = ClientCache()
 
     @asynccontextmanager
     async def lifespan(server):
         yield {
             "client_cache": client_cache,
-            "enforcer": enforcer,
             "settings": settings,
         }
         if mcp_key_provider:
             mcp_key_provider.close()
+
+    # ACL middleware replaces per-tool check_acl() calls
+    acl_mw = AclMiddleware(service_id=SERVICE_ID, acl_path=settings.auth_yaml_path)
 
     mcp_kwargs: dict = {
         "name": "Cassandra Twitter",
@@ -74,6 +72,7 @@ def create_mcp_server(settings: Settings) -> FastMCP:
             "All tools are read-only and idempotent."
         ),
         "lifespan": lifespan,
+        "middleware": [acl_mw] if acl_mw._enabled else [],  # noqa: SLF001
     }
     if auth_provider:
         mcp_kwargs["auth"] = auth_provider

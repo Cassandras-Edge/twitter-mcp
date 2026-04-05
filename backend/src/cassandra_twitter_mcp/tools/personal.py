@@ -16,7 +16,7 @@ from fastmcp.server.context import Context
 from mcp.types import ToolAnnotations
 
 from cassandra_twitter_mcp.tools._helpers import (
-    check_acl, get_email, get_enforcer, resolve_personal_client,
+    get_email, resolve_personal_client,
 )
 
 
@@ -44,7 +44,6 @@ def register(mcp: FastMCP) -> None:
             feed_type: 'foryou' (algorithmic, default) or 'following' (chronological).
             count: Number of tweets to fetch (default 20, max ~100).
         """
-        check_acl(get_enforcer(ctx), get_email(token), "my_feed")
         personal_client = resolve_personal_client(ctx, token)
         count = max(1, min(count, 100))
         tweets = await _run(personal_client.get_feed, feed_type, count)
@@ -65,7 +64,6 @@ def register(mcp: FastMCP) -> None:
             count: Number of bookmarks to fetch (default 50).
             folder_id: Optional bookmark folder ID. Use list_bookmark_folders to get IDs.
         """
-        check_acl(get_enforcer(ctx), get_email(token), "my_bookmarks")
         personal_client = resolve_personal_client(ctx, token)
         count = max(1, min(count, 200))
         if folder_id:
@@ -80,7 +78,6 @@ def register(mcp: FastMCP) -> None:
         token: AccessToken = CurrentAccessToken(),
     ) -> dict:
         """List your Twitter/X bookmark folders."""
-        check_acl(get_enforcer(ctx), get_email(token), "list_bookmark_folders")
         personal_client = resolve_personal_client(ctx, token)
         folders = await _run(personal_client.get_bookmark_folders)
         return {"count": len(folders), "folders": folders}
@@ -99,7 +96,6 @@ def register(mcp: FastMCP) -> None:
         Args:
             tweet_id: The tweet ID containing the article.
         """
-        check_acl(get_enforcer(ctx), get_email(token), "get_article")
         personal_client = resolve_personal_client(ctx, token)
         tweet_id = tweet_id.strip()
         article = await _run(personal_client.get_article, tweet_id)
@@ -114,7 +110,6 @@ def register(mcp: FastMCP) -> None:
 
         Returns your username, bio, follower/following counts, etc.
         """
-        check_acl(get_enforcer(ctx), get_email(token), "my_profile")
         personal_client = resolve_personal_client(ctx, token)
         profile = await _run(personal_client.whoami)
         return {"profile": profile}
@@ -136,7 +131,6 @@ def register(mcp: FastMCP) -> None:
             query: Search query string.
             count: Number of results (default 20).
         """
-        check_acl(get_enforcer(ctx), get_email(token), "personal_search")
         personal_client = resolve_personal_client(ctx, token)
         count = max(1, min(count, 100))
         tweets = await _run(personal_client.search, query, count)
@@ -155,7 +149,6 @@ def register(mcp: FastMCP) -> None:
         Args:
             screen_name: Twitter handle (with or without @).
         """
-        check_acl(get_enforcer(ctx), get_email(token), "personal_user_profile")
         personal_client = resolve_personal_client(ctx, token)
         screen_name = screen_name.lstrip("@").strip()
         profile = await _run(personal_client.get_user_profile, screen_name)
@@ -174,7 +167,6 @@ def register(mcp: FastMCP) -> None:
             screen_name: Twitter handle (with or without @).
             count: Number of tweets (default 20).
         """
-        check_acl(get_enforcer(ctx), get_email(token), "personal_user_posts")
         personal_client = resolve_personal_client(ctx, token)
         screen_name = screen_name.lstrip("@").strip()
         count = max(1, min(count, 100))
@@ -196,7 +188,6 @@ def register(mcp: FastMCP) -> None:
             tweet_id: Tweet ID.
             count: Max replies to include (default 20).
         """
-        check_acl(get_enforcer(ctx), get_email(token), "personal_tweet_detail")
         personal_client = resolve_personal_client(ctx, token)
         tweet_id = tweet_id.strip()
         count = max(1, min(count, 100))

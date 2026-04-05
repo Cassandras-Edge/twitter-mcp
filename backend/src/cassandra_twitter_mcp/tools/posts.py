@@ -13,7 +13,7 @@ from mcp.types import TextContent, ToolAnnotations
 
 from cassandra_twitter_mcp.clients.x_api import XClient
 from cassandra_twitter_mcp.tools._helpers import (
-    check_acl, get_email, get_enforcer, resolve_x_client,
+    get_email, resolve_x_client,
 )
 
 
@@ -186,7 +186,6 @@ def register(mcp: FastMCP) -> None:
             max_image_blocks: Max number of image blocks to embed when
                 include_image_content=true (default 4, max 12).
         """
-        check_acl(get_enforcer(ctx), get_email(token), "get_tweet")
         x_client = resolve_x_client(ctx)
         try:
             tid = x_client.extract_tweet_id(tweet_id)
@@ -243,7 +242,6 @@ def register(mcp: FastMCP) -> None:
             max_image_blocks: Max number of image blocks to embed when
                 include_image_content=true (default 6, max 12).
         """
-        check_acl(get_enforcer(ctx), get_email(token), "get_thread")
         x_client = resolve_x_client(ctx)
         try:
             tid = x_client.extract_tweet_id(tweet_id)
@@ -373,7 +371,6 @@ def register(mcp: FastMCP) -> None:
             tweet_id: Tweet ID or URL
             max_results: Max replies (10-100, default 50)
         """
-        check_acl(get_enforcer(ctx), get_email(token), "get_replies")
         x_client = resolve_x_client(ctx)
         try:
             tid = x_client.extract_tweet_id(tweet_id)

@@ -5,14 +5,10 @@ from __future__ import annotations
 from fastmcp.server.auth import AccessToken
 from fastmcp.server.context import Context
 
-from cassandra_twitter_mcp.acl import Enforcer
 from cassandra_twitter_mcp.client_cache import ClientCache
 from cassandra_twitter_mcp.clients.grok import GrokClient
 from cassandra_twitter_mcp.clients.personal import PersonalClient
 from cassandra_twitter_mcp.clients.x_api import XClient
-
-SERVICE_ID = "twitter-mcp"
-
 
 def get_email(token: AccessToken) -> str:
     return token.claims.get("email", "")
@@ -22,20 +18,8 @@ def get_credentials(token: AccessToken) -> dict[str, str]:
     return token.claims.get("credentials", {})
 
 
-def check_acl(enforcer: Enforcer | None, email: str, tool_name: str) -> None:
-    if enforcer is None:
-        return
-    result = enforcer.enforce(email, SERVICE_ID, tool_name)
-    if not result.allowed:
-        raise ValueError(f"Access denied: {result.reason}")
-
-
 def get_cache(ctx: Context) -> ClientCache:
     return ctx.lifespan_context["client_cache"]
-
-
-def get_enforcer(ctx: Context) -> Enforcer | None:
-    return ctx.lifespan_context.get("enforcer")
 
 
 def resolve_x_client(ctx: Context) -> XClient:
