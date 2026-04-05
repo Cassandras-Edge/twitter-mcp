@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-
 from fastmcp.server.auth import AccessToken
 from fastmcp.server.context import Context
 
@@ -13,15 +11,11 @@ from cassandra_twitter_mcp.clients.grok import GrokClient
 from cassandra_twitter_mcp.clients.personal import PersonalClient
 from cassandra_twitter_mcp.clients.x_api import XClient
 
-logger = logging.getLogger(__name__)
-
 SERVICE_ID = "twitter-mcp"
 
 
 def get_email(token: AccessToken) -> str:
-    email = token.claims.get("email", "")
-    logger.info("get_email: claims_keys=%s email=%r", list(token.claims.keys()), email)
-    return email
+    return token.claims.get("email", "")
 
 
 def get_credentials(token: AccessToken) -> dict[str, str]:
@@ -33,7 +27,6 @@ def check_acl(enforcer: Enforcer | None, email: str, tool_name: str) -> None:
         return
     result = enforcer.enforce(email, SERVICE_ID, tool_name)
     if not result.allowed:
-        logger.warning("ACL denied: email=%r service=%s tool=%s reason=%s", email, SERVICE_ID, tool_name, result.reason)
         raise ValueError(f"Access denied: {result.reason}")
 
 
