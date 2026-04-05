@@ -64,16 +64,23 @@ def create_mcp_server(settings: Settings) -> FastMCP:
     mcp_kwargs: dict = {
         "name": "Cassandra Twitter",
         "instructions": (
-            "Consolidated Twitter/X server for financial research and personal account access. "
-            "PREFER search_news as the default starting point — it is fast, cheap, "
-            "and returns curated news articles with headlines and summaries. "
-            "Only escalate to search (Grok AI) when you specifically need opinion "
-            "synthesis, discourse analysis, or quantitative sentiment. "
-            "Use get_post_counts for volume analytics, get_user_tweets for monitoring accounts, "
-            "get_tweet/get_thread/get_replies for individual post analysis. "
-            "Use my_feed for the user's personal Twitter timeline, my_bookmarks for saved tweets, "
-            "and get_article for Twitter Articles (long-form content). "
-            "All tools are read-only and idempotent."
+            "# Cassandra Twitter\n\n"
+            "Twitter/X research + personal account access. Two layers: public "
+            "research (X API v2 + Grok AI) and the user's own timeline/bookmarks "
+            "(via synced browser cookies). All tools read-only.\n\n"
+            "## When to use\n"
+            "- **News & research** — curated articles, trending topics, ticker sentiment\n"
+            "- **Volume analytics** — how often a topic/ticker is mentioned over time\n"
+            "- **Account monitoring** — recent tweets from specific accounts\n"
+            "- **Thread analysis** — read full threads, replies, long-form Articles\n"
+            "- **Personal timeline** — the user's own feed, bookmarks, profile\n\n"
+            "## Getting started\n"
+            "Default to `search_news` first — fast, cheap, returns headlines + summaries. "
+            "Escalate to `search` (Grok AI) only when you need opinion synthesis, discourse "
+            "analysis, or quantitative sentiment. Use `get_post_counts` for volume analytics.\n\n"
+            "## Discovery\n"
+            "`tags()` → browse categories, `search(query, tags=[...])` → find tools, "
+            "`get_schema(tools=[...])` → see params. Execute via gateway `execute` tool."
         ),
         "lifespan": lifespan,
         "middleware": [acl_mw] if acl_mw._enabled else [],  # noqa: SLF001
