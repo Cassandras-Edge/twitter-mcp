@@ -33,44 +33,92 @@ def register(mcp: FastMCP) -> None:
         ctx: Context,
         feed_type: Literal["foryou", "following"] = "foryou",
         count: int = 20,
+        cursor: Optional[str] = None,
         token: AccessToken = CurrentAccessToken(),
     ) -> dict:
-        """Get your personal Twitter/X home feed.
+        """Get your personal Twitter/X home feed (single page).
 
-        Returns tweets from your timeline — either the algorithmic 'For You'
-        feed or your 'Following' feed (chronological).
+        Returns one page of tweets from your timeline — either the algorithmic
+        'For You' feed or your chronological 'Following' feed. To fetch more,
+        call again with the returned `next_cursor`.
 
         Args:
             feed_type: 'foryou' (algorithmic, default) or 'following' (chronological).
-            count: Number of tweets to fetch (default 20, max ~100).
+            count: Page size (default 20, max 40).
+            cursor: Pagination cursor from a previous call's `next_cursor`.
+                    Omit to start from the top of the feed.
         """
         personal_client = resolve_personal_client(ctx, token)
-        count = max(1, min(count, 100))
-        tweets = await _run(personal_client.get_feed, feed_type, count)
-        return {"feed_type": feed_type, "count": len(tweets), "tweets": tweets}
+        count = max(1, min(count, 40))
+        page = await _run(personal_client.get_feed_page, feed_type, count, cursor)
+        return {
+            "feed_type": feed_type,
+            "count": len(page["tweets"]),
+            "tweets": page["tweets"],
+            "next_cursor": page["next_cursor"],
+        }
 
     @mcp.tool(annotations=_ro)
     async def my_bookmarks(
         ctx: Context,
-        count: int = 50,
+        count: int = 20,
         folder_id: Optional[str] = None,
+        cursor: Optional[str] = None,
         token: AccessToken = CurrentAccessToken(),
     ) -> dict:
-        """Get your saved Twitter/X bookmarks.
+        """Get your saved Twitter/X bookmarks (single page).
 
-        Returns your bookmarked tweets, optionally from a specific bookmark folder.
+        Returns one page of bookmarks, optionally from a specific folder. Call
+        again with the returned `next_cursor` to fetch the next page.
 
         Args:
-            count: Number of bookmarks to fetch (default 50).
+            count: Page size (default 20, max 40).
             folder_id: Optional bookmark folder ID. Use list_bookmark_folders to get IDs.
+            cursor: Pagination cursor from a previous call's `next_cursor`.
         """
         personal_client = resolve_personal_client(ctx, token)
-        count = max(1, min(count, 200))
+        count = max(1, min(count, 40))
         if folder_id:
-            tweets = await _run(personal_client.get_bookmark_folder_tweets, folder_id, count)
-            return {"folder_id": folder_id, "count": len(tweets), "tweets": tweets}
-        tweets = await _run(personal_client.get_bookmarks, count)
-        return {"count": len(tweets), "tweets": tweets}
+            page = await _run(
+                personal_client.get_bookmark_folder_tweets_page, folder_id, count, cursor,
+            )
+            return {
+                "folder_id": folder_id,
+                "count": len(page["tweets"]),
+                "tweets": page["tweets"],
+                "next_cursor": page["next_cursor"],
+            }
+        page = await _run(personal_client.get_bookmarks_page, count, cursor)
+        return {
+            "count": len(page["tweets"]),
+            "tweets": page["tweets"],
+            "next_cursor": page["next_cursor"],
+        }
+
+    @mcp.tool(annotations=_ro)
+    async def my_likes(
+        ctx: Context,
+        count: int = 20,
+        cursor: Optional[str] = None,
+        token: AccessToken = CurrentAccessToken(),
+    ) -> dict:
+        """Get tweets you've liked on Twitter/X (single page).
+
+        Returns one page of your liked tweets in reverse-chronological order.
+        Call again with the returned `next_cursor` to fetch the next page.
+
+        Args:
+            count: Page size (default 20, max 40).
+            cursor: Pagination cursor from a previous call's `next_cursor`.
+        """
+        personal_client = resolve_personal_client(ctx, token)
+        count = max(1, min(count, 40))
+        page = await _run(personal_client.get_my_likes_page, count, cursor)
+        return {
+            "count": len(page["tweets"]),
+            "tweets": page["tweets"],
+            "next_cursor": page["next_cursor"],
+        }
 
     @mcp.tool(annotations=_ro)
     async def list_bookmark_folders(
@@ -119,22 +167,32 @@ def register(mcp: FastMCP) -> None:
         query: str,
         ctx: Context,
         count: int = 20,
+        cursor: Optional[str] = None,
+        product: Literal["Top", "Latest", "People", "Photos", "Videos"] = "Top",
         token: AccessToken = CurrentAccessToken(),
     ) -> dict:
-        """Search tweets using your personal Twitter/X account.
+        """Search tweets using your personal Twitter/X account (single page).
 
-        Unlike the API-based search tools, this uses your authenticated session
-        and may return different results (including results from private accounts
-        you follow).
+        Uses your authenticated session and may return different results
+        (including from private accounts you follow). Call again with the
+        returned `next_cursor` to fetch the next page.
 
         Args:
             query: Search query string.
-            count: Number of results (default 20).
+            count: Page size (default 20, max 40).
+            cursor: Pagination cursor from a previous call's `next_cursor`.
+            product: Search tab — Top, Latest, People, Photos, Videos.
         """
         personal_client = resolve_personal_client(ctx, token)
-        count = max(1, min(count, 100))
-        tweets = await _run(personal_client.search, query, count)
-        return {"query": query, "count": len(tweets), "tweets": tweets}
+        count = max(1, min(count, 40))
+        page = await _run(personal_client.search_page, query, count, cursor, product)
+        return {
+            "query": query,
+            "product": product,
+            "count": len(page["tweets"]),
+            "tweets": page["tweets"],
+            "next_cursor": page["next_cursor"],
+        }
 
     @mcp.tool(annotations=_ro)
     async def personal_user_profile(
@@ -159,19 +217,136 @@ def register(mcp: FastMCP) -> None:
         screen_name: str,
         ctx: Context,
         count: int = 20,
+        cursor: Optional[str] = None,
         token: AccessToken = CurrentAccessToken(),
     ) -> dict:
-        """Get a user's recent tweets via your authenticated session.
+        """Get a user's recent tweets via your authenticated session (single page).
 
         Args:
             screen_name: Twitter handle (with or without @).
-            count: Number of tweets (default 20).
+            count: Page size (default 20, max 40).
+            cursor: Pagination cursor from a previous call's `next_cursor`.
         """
         personal_client = resolve_personal_client(ctx, token)
         screen_name = screen_name.lstrip("@").strip()
-        count = max(1, min(count, 100))
-        tweets = await _run(personal_client.get_user_posts, screen_name, count)
-        return {"screen_name": screen_name, "count": len(tweets), "tweets": tweets}
+        count = max(1, min(count, 40))
+        page = await _run(personal_client.get_user_posts_page, screen_name, count, cursor)
+        return {
+            "screen_name": screen_name,
+            "count": len(page["tweets"]),
+            "tweets": page["tweets"],
+            "next_cursor": page["next_cursor"],
+        }
+
+    @mcp.tool(annotations=_ro)
+    async def personal_user_likes(
+        screen_name: str,
+        ctx: Context,
+        count: int = 20,
+        cursor: Optional[str] = None,
+        token: AccessToken = CurrentAccessToken(),
+    ) -> dict:
+        """Get a user's liked tweets via your authenticated session (single page).
+
+        Note: X made likes private by default in 2024. Returns results only for
+        accounts whose likes are public (or your own — use my_likes for that).
+
+        Args:
+            screen_name: Twitter handle (with or without @).
+            count: Page size (default 20, max 40).
+            cursor: Pagination cursor from a previous call's `next_cursor`.
+        """
+        personal_client = resolve_personal_client(ctx, token)
+        screen_name = screen_name.lstrip("@").strip()
+        count = max(1, min(count, 40))
+        page = await _run(personal_client.get_user_likes_page, screen_name, count, cursor)
+        return {
+            "screen_name": screen_name,
+            "count": len(page["tweets"]),
+            "tweets": page["tweets"],
+            "next_cursor": page["next_cursor"],
+        }
+
+    @mcp.tool(annotations=_ro)
+    async def personal_user_followers(
+        screen_name: str,
+        ctx: Context,
+        count: int = 20,
+        cursor: Optional[str] = None,
+        token: AccessToken = CurrentAccessToken(),
+    ) -> dict:
+        """Get a user's followers via your authenticated session (single page).
+
+        Args:
+            screen_name: Twitter handle (with or without @).
+            count: Page size (default 20, max 40).
+            cursor: Pagination cursor from a previous call's `next_cursor`.
+        """
+        personal_client = resolve_personal_client(ctx, token)
+        screen_name = screen_name.lstrip("@").strip()
+        count = max(1, min(count, 40))
+        page = await _run(personal_client.get_followers_page, screen_name, count, cursor)
+        return {
+            "screen_name": screen_name,
+            "count": len(page["users"]),
+            "followers": page["users"],
+            "next_cursor": page["next_cursor"],
+        }
+
+    @mcp.tool(annotations=_ro)
+    async def personal_user_following(
+        screen_name: str,
+        ctx: Context,
+        count: int = 20,
+        cursor: Optional[str] = None,
+        token: AccessToken = CurrentAccessToken(),
+    ) -> dict:
+        """Get the accounts a user follows via your authenticated session (single page).
+
+        Args:
+            screen_name: Twitter handle (with or without @).
+            count: Page size (default 20, max 40).
+            cursor: Pagination cursor from a previous call's `next_cursor`.
+        """
+        personal_client = resolve_personal_client(ctx, token)
+        screen_name = screen_name.lstrip("@").strip()
+        count = max(1, min(count, 40))
+        page = await _run(personal_client.get_following_page, screen_name, count, cursor)
+        return {
+            "screen_name": screen_name,
+            "count": len(page["users"]),
+            "following": page["users"],
+            "next_cursor": page["next_cursor"],
+        }
+
+    @mcp.tool(annotations=_ro)
+    async def personal_list_timeline(
+        list_id: str,
+        ctx: Context,
+        count: int = 20,
+        cursor: Optional[str] = None,
+        token: AccessToken = CurrentAccessToken(),
+    ) -> dict:
+        """Get tweets from a Twitter/X List timeline (single page).
+
+        Lists are curated collections of accounts. Pass the numeric list ID
+        (visible in the list URL: x.com/i/lists/<list_id>).
+
+        Args:
+            list_id: Numeric Twitter List ID.
+            count: Page size (default 20, max 40).
+            cursor: Pagination cursor from a previous call's `next_cursor`.
+        """
+        personal_client = resolve_personal_client(ctx, token)
+        list_id = list_id.strip()
+        count = max(1, min(count, 40))
+        page = await _run(personal_client.get_list_timeline_page, list_id, count, cursor)
+        return {
+            "list_id": list_id,
+            "count": len(page["tweets"]),
+            "tweets": page["tweets"],
+            "next_cursor": page["next_cursor"],
+        }
 
     @mcp.tool(annotations=_ro)
     async def personal_tweet_detail(
@@ -190,6 +365,6 @@ def register(mcp: FastMCP) -> None:
         """
         personal_client = resolve_personal_client(ctx, token)
         tweet_id = tweet_id.strip()
-        count = max(1, min(count, 100))
+        count = max(1, min(count, 500))
         tweets = await _run(personal_client.get_tweet_detail, tweet_id, count)
         return {"tweet_id": tweet_id, "count": len(tweets), "tweets": tweets}

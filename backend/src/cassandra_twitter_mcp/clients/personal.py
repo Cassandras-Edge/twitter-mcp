@@ -8,9 +8,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict
-from typing import Any
+from typing import Any, Optional
+
+from twitter_cli.graphql import FEATURES
+from twitter_cli.parser import _deep_get, parse_timeline_response, parse_user_result
 
 logger = logging.getLogger(__name__)
+
+_PAGE_SIZE_MAX = 40
 
 
 def _tweet_to_dict(tweet: Any) -> dict:
@@ -94,6 +99,11 @@ class PersonalClient:
         tweets = self._client.fetch_user_likes(profile.id, count=count)
         return [_tweet_to_dict(t) for t in tweets]
 
+    def get_my_likes(self, count: int = 20) -> list[dict]:
+        me = self._client.fetch_me()
+        tweets = self._client.fetch_user_likes(me.id, count=count)
+        return [_tweet_to_dict(t) for t in tweets]
+
     def whoami(self) -> dict:
         profile = self._client.fetch_me()
         return _profile_to_dict(profile)
@@ -107,3 +117,190 @@ class PersonalClient:
         profile = self._client.fetch_user(screen_name)
         following = self._client.fetch_following(profile.id, count=count)
         return [_profile_to_dict(f) for f in following]
+
+    def get_list_timeline(self, list_id: str, count: int = 20) -> list[dict]:
+        tweets = self._client.fetch_list_timeline(list_id, count=count)
+        return [_tweet_to_dict(t) for t in tweets]
+
+    # ── Cursor-paginated single-page fetchers ─────────────────────────
+    # Each returns {"tweets": [...], "next_cursor": str|None} or
+    # {"users": [...], "next_cursor": str|None}. next_cursor is None at end.
+
+    def _timeline_page(
+        self,
+        operation_name: str,
+        count: int,
+        cursor: Optional[str],
+        get_instructions,
+        extra_variables: Optional[dict] = None,
+        override_base: bool = False,
+        field_toggles: Optional[dict] = None,
+    ) -> dict:
+        page_size = max(1, min(count, _PAGE_SIZE_MAX))
+        if override_base:
+            variables: dict[str, Any] = {"count": page_size}
+        else:
+            variables = {
+                "count": page_size,
+                "includePromotedContent": False,
+                "latestControlAvailable": True,
+                "requestContext": "launch",
+            }
+        if extra_variables:
+            variables.update(extra_variables)
+        if cursor:
+            variables["cursor"] = cursor
+        data = self._client._graphql_get(
+            operation_name, variables, FEATURES, field_toggles=field_toggles,
+        )
+        tweets, next_cursor = parse_timeline_response(data, get_instructions)
+        return {
+            "tweets": [_tweet_to_dict(t) for t in tweets],
+            "next_cursor": next_cursor,
+        }
+
+    def _user_list_page(
+        self,
+        operation_name: str,
+        user_id: str,
+        count: int,
+        cursor: Optional[str],
+        get_instructions,
+    ) -> dict:
+        page_size = max(1, min(count, _PAGE_SIZE_MAX))
+        variables: dict[str, Any] = {
+            "userId": user_id,
+            "count": page_size,
+            "includePromotedContent": False,
+        }
+        if cursor:
+            variables["cursor"] = cursor
+        data = self._client._graphql_get(operation_name, variables, FEATURES)
+        instructions = get_instructions(data)
+        users: list = []
+        next_cursor: Optional[str] = None
+        if instructions:
+            for instruction in instructions:
+                for entry in instruction.get("entries", []):
+                    content = entry.get("content", {})
+                    etype = content.get("entryType", "")
+                    if etype == "TimelineTimelineItem":
+                        item = content.get("itemContent", {})
+                        user_results = _deep_get(item, "user_results", "result")
+                        if user_results:
+                            u = parse_user_result(user_results)
+                            if u:
+                                users.append(u)
+                    elif etype == "TimelineTimelineCursor":
+                        if content.get("cursorType") == "Bottom":
+                            next_cursor = content.get("value")
+        return {
+            "users": [_profile_to_dict(u) for u in users],
+            "next_cursor": next_cursor,
+        }
+
+    def get_feed_page(self, feed_type: str, count: int, cursor: Optional[str]) -> dict:
+        op = "HomeLatestTimeline" if feed_type == "following" else "HomeTimeline"
+        return self._timeline_page(
+            op, count, cursor,
+            lambda d: _deep_get(d, "data", "home", "home_timeline_urt", "instructions"),
+        )
+
+    def get_bookmarks_page(self, count: int, cursor: Optional[str]) -> dict:
+        def get_instructions(data):
+            i = _deep_get(data, "data", "bookmark_timeline", "timeline", "instructions")
+            if i is None:
+                i = _deep_get(data, "data", "bookmark_timeline_v2", "timeline", "instructions")
+            return i
+        return self._timeline_page("Bookmarks", count, cursor, get_instructions)
+
+    def get_bookmark_folder_tweets_page(
+        self, folder_id: str, count: int, cursor: Optional[str],
+    ) -> dict:
+        return self._timeline_page(
+            "BookmarkFolderTimeline", count, cursor,
+            lambda d: _deep_get(d, "data", "bookmark_collection_timeline", "timeline", "instructions"),
+            extra_variables={"bookmark_collection_id": folder_id, "includePromotedContent": False},
+            override_base=True,
+        )
+
+    def _user_likes_page_by_id(self, user_id: str, count: int, cursor: Optional[str]) -> dict:
+        def get_instructions(data):
+            i = _deep_get(data, "data", "user", "result", "timeline", "timeline", "instructions")
+            if i is None:
+                i = _deep_get(data, "data", "user", "result", "timeline_v2", "timeline", "instructions")
+            return i
+        return self._timeline_page(
+            "Likes", count, cursor, get_instructions,
+            extra_variables={
+                "userId": user_id,
+                "includePromotedContent": False,
+                "withClientEventToken": False,
+                "withBirdwatchNotes": False,
+                "withVoice": True,
+            },
+            override_base=True,
+        )
+
+    def get_my_likes_page(self, count: int, cursor: Optional[str]) -> dict:
+        me = self._client.fetch_me()
+        return self._user_likes_page_by_id(me.id, count, cursor)
+
+    def get_user_likes_page(
+        self, screen_name: str, count: int, cursor: Optional[str],
+    ) -> dict:
+        profile = self._client.fetch_user(screen_name)
+        return self._user_likes_page_by_id(profile.id, count, cursor)
+
+    def get_user_posts_page(
+        self, screen_name: str, count: int, cursor: Optional[str],
+    ) -> dict:
+        profile = self._client.fetch_user(screen_name)
+        return self._timeline_page(
+            "UserTweets", count, cursor,
+            lambda d: _deep_get(d, "data", "user", "result", "timeline_v2", "timeline", "instructions"),
+            extra_variables={
+                "userId": profile.id,
+                "withQuickPromoteEligibilityTweetFields": True,
+                "withVoice": True,
+                "withV2Timeline": True,
+            },
+        )
+
+    def get_list_timeline_page(
+        self, list_id: str, count: int, cursor: Optional[str],
+    ) -> dict:
+        return self._timeline_page(
+            "ListLatestTweetsTimeline", count, cursor,
+            lambda d: _deep_get(d, "data", "list", "tweets_timeline", "timeline", "instructions"),
+            extra_variables={"listId": list_id},
+            override_base=True,
+        )
+
+    def get_followers_page(
+        self, screen_name: str, count: int, cursor: Optional[str],
+    ) -> dict:
+        profile = self._client.fetch_user(screen_name)
+        return self._user_list_page(
+            "Followers", profile.id, count, cursor,
+            lambda d: _deep_get(d, "data", "user", "result", "timeline", "timeline", "instructions"),
+        )
+
+    def get_following_page(
+        self, screen_name: str, count: int, cursor: Optional[str],
+    ) -> dict:
+        profile = self._client.fetch_user(screen_name)
+        return self._user_list_page(
+            "Following", profile.id, count, cursor,
+            lambda d: _deep_get(d, "data", "user", "result", "timeline", "timeline", "instructions"),
+        )
+
+    def search_page(
+        self, query: str, count: int, cursor: Optional[str], product: str = "Top",
+    ) -> dict:
+        return self._timeline_page(
+            "SearchTimeline", count, cursor,
+            lambda d: _deep_get(d, "data", "search_by_raw_query", "search_timeline", "timeline", "instructions"),
+            extra_variables={"rawQuery": query, "querySource": "typed_query", "product": product},
+            override_base=True,
+        )
